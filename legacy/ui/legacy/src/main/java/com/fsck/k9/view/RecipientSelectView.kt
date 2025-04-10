@@ -1,225 +1,196 @@
-package com.fsck.k9.view;
+package com.fsck.k9.view
 
+import android.annotation.SuppressLint
+import android.content.Context
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Rect
+import android.net.Uri
+import android.os.Bundle
+import android.os.Handler
+import android.provider.ContactsContract
+import android.text.TextUtils
+import android.util.AttributeSet
+import android.util.TypedValue
+import android.view.KeyEvent
+import android.view.LayoutInflater
+import android.view.View
+import android.view.inputmethod.InputMethodManager
+import android.widget.ListPopupWindow
+import android.widget.ListView
+import androidx.loader.app.LoaderManager
+import androidx.loader.content.Loader
+import app.k9mail.legacy.di.DI.get
+import com.fsck.k9.FontSizes
+import com.fsck.k9.K9.isShowCorrespondentNames
+import com.fsck.k9.activity.AlternateRecipientAdapter
+import com.fsck.k9.activity.AlternateRecipientAdapter.AlternateRecipientListener
+import com.fsck.k9.activity.compose.RecipientAdapter
+import com.fsck.k9.activity.compose.RecipientLoader
+import com.fsck.k9.helper.ClipboardManager
+import com.fsck.k9.mail.Address
+import com.fsck.k9.ui.R
+import com.fsck.k9.ui.compose.OnSetImageDrawableListener
+import com.fsck.k9.ui.compose.RecipientCircleImageView
+import com.google.android.material.textview.MaterialTextView
+import com.tokenautocomplete.TokenCompleteTextView
+import de.hdodenhof.circleimageview.CircleImageView
+import java.io.IOException
+import java.io.ObjectInputStream
+import java.io.ObjectOutputStream
+import java.io.Serializable
 
-import java.io.IOException;
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
-import java.io.Serializable;
-import java.util.ArrayList;
-import java.util.List;
+class RecipientSelectView : TokenCompleteTextView<RecipientSelectView.Recipient?>,
+    LoaderManager.LoaderCallbacks<List<RecipientSelectView.Recipient?>>,
+    AlternateRecipientListener {
+    private val emailAddressParser = get(
+        UserInputEmailAddressParser::class.java
+    )
 
-import android.annotation.SuppressLint;
-import android.content.Context;
-import android.graphics.Canvas;
-import android.graphics.Paint;
-import android.graphics.Rect;
-import android.net.Uri;
-import android.os.Bundle;
-import android.os.Handler;
-import android.provider.ContactsContract.Contacts;
-import android.text.Editable;
-import android.text.TextUtils;
-import android.util.AttributeSet;
-import android.util.TypedValue;
-import android.view.KeyEvent;
-import android.view.LayoutInflater;
-import android.view.View;
-import android.view.inputmethod.InputMethodManager;
-import android.widget.ListPopupWindow;
-import android.widget.ListView;
+    private var adapter: RecipientAdapter? = null
+    private var cryptoProvider: String? = null
+    private var showCryptoEnabled = false
+    private var loaderManager: LoaderManager? = null
 
-import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
-import androidx.loader.app.LoaderManager;
-import androidx.loader.app.LoaderManager.LoaderCallbacks;
-import androidx.loader.content.Loader;
-import app.k9mail.legacy.di.DI;
-import com.fsck.k9.K9;
-import com.fsck.k9.activity.AlternateRecipientAdapter;
-import com.fsck.k9.activity.AlternateRecipientAdapter.AlternateRecipientListener;
-import com.fsck.k9.activity.compose.RecipientAdapter;
-import com.fsck.k9.activity.compose.RecipientLoader;
-import com.fsck.k9.helper.ClipboardManager;
-import com.fsck.k9.mail.Address;
-import com.fsck.k9.ui.R;
-import com.fsck.k9.ui.compose.RecipientCircleImageView;
-import com.fsck.k9.view.RecipientSelectView.Recipient;
-import com.google.android.material.textview.MaterialTextView;
-import com.tokenautocomplete.TokenCompleteTextView;
-import de.hdodenhof.circleimageview.CircleImageView;
-import timber.log.Timber;
+    private var alternatesPopup: ListPopupWindow? = null
+    private var alternatesAdapter: AlternateRecipientAdapter? = null
+    private var alternatesPopupRecipient: Recipient? = null
+    private var listener: TokenListener<Recipient?>? = null
+    private var tokenTextSize = FontSizes.FONT_DEFAULT
 
-import static com.fsck.k9.FontSizes.FONT_DEFAULT;
-
-
-public class RecipientSelectView extends TokenCompleteTextView<Recipient> implements LoaderCallbacks<List<Recipient>>,
-        AlternateRecipientListener {
-
-    private static final int MINIMUM_LENGTH_FOR_FILTERING = 2;
-
-    private static final String ARG_QUERY = "query";
-
-    private static final int LOADER_ID_FILTERING = 0;
-    private static final int LOADER_ID_ALTERNATES = 1;
-
-
-    private final UserInputEmailAddressParser emailAddressParser = DI.get(UserInputEmailAddressParser.class);
-
-    private RecipientAdapter adapter;
-    @Nullable
-    private String cryptoProvider;
-    private boolean showCryptoEnabled;
-    @Nullable
-    private LoaderManager loaderManager;
-
-    private ListPopupWindow alternatesPopup;
-    private AlternateRecipientAdapter alternatesAdapter;
-    private Recipient alternatesPopupRecipient;
-    private TokenListener<Recipient> listener;
-    private int tokenTextSize = FONT_DEFAULT;
-
-
-    public RecipientSelectView(Context context) {
-        super(context);
-        initView(context);
+    constructor(context: Context) : super(context) {
+        initView(context)
     }
 
-    public RecipientSelectView(Context context, AttributeSet attrs) {
-        super(context, attrs);
-        initView(context);
+    constructor(context: Context, attrs: AttributeSet?) : super(context, attrs) {
+        initView(context)
     }
 
-    public RecipientSelectView(Context context, AttributeSet attrs, int defStyle) {
-        super(context, attrs, defStyle);
-        initView(context);
+    constructor(context: Context, attrs: AttributeSet?, defStyle: Int) : super(context, attrs, defStyle) {
+        initView(context)
     }
 
-    private void initView(Context context) {
+    private fun initView(context: Context) {
         // TODO: validator?
 
-        alternatesPopup = new ListPopupWindow(context);
-        alternatesAdapter = new AlternateRecipientAdapter(context, this);
-        alternatesPopup.setAdapter(alternatesAdapter);
+        alternatesPopup = ListPopupWindow(context)
+        alternatesAdapter = AlternateRecipientAdapter(context, this)
+        alternatesPopup!!.setAdapter(alternatesAdapter)
 
         // if a token is completed, pick an entry based on best guess.
         // Note that we override performCompletion, so this doesn't actually do anything
-        performBestGuess(true);
+        performBestGuess(true)
 
-        adapter = new RecipientAdapter(context);
-        setAdapter(adapter);
+        adapter = RecipientAdapter(context)
+        setAdapter(adapter)
 
-        setLongClickable(true);
+        isLongClickable = true
     }
 
-    @Override
-    public boolean shouldIgnoreToken(Recipient token) {
+    override fun shouldIgnoreToken(token: Recipient): Boolean {
         // don't allow duplicates, based on equality of recipient objects, which is email addresses
-        return getObjects().contains(token);
+        return objects.contains(token)
     }
 
-    public void setTokenTextSize(int tokenTextSize) {
-        this.tokenTextSize = tokenTextSize;
+    fun setTokenTextSize(tokenTextSize: Int) {
+        this.tokenTextSize = tokenTextSize
     }
 
-    @Override
-    protected View getViewForObject(Recipient recipient) {
-        View view = inflateLayout();
+    override fun getViewForObject(recipient: Recipient): View {
+        val view = inflateLayout()
 
-        RecipientTokenViewHolder holder = new RecipientTokenViewHolder(view);
-        view.setTag(holder);
+        val holder = RecipientTokenViewHolder(view)
+        view.tag = holder
 
-        bindObjectView(recipient, view);
+        bindObjectView(recipient, view)
 
-        return view;
+        return view
     }
 
     @SuppressLint("InflateParams")
-    private View inflateLayout() {
-        LayoutInflater layoutInflater = LayoutInflater.from(getContext());
-        View view = layoutInflater.inflate(R.layout.recipient_token_item, null, false);
+    private fun inflateLayout(): View {
+        val layoutInflater = LayoutInflater.from(context)
+        val view = layoutInflater.inflate(R.layout.recipient_token_item, null, false)
 
         // Since the recipient chip views are not part of the view hierarchy we need to manually invalidate this
         // RecipientSelectView whenever a contact picture was loaded in order for the image to be drawn.
-        RecipientCircleImageView contactPhotoView = view.findViewById(R.id.contact_photo);
-        contactPhotoView.setOnSetImageDrawableListener(this::redrawTokens);
+        val contactPhotoView = view.findViewById<RecipientCircleImageView>(R.id.contact_photo)
+        contactPhotoView.onSetImageDrawableListener = OnSetImageDrawableListener { this.redrawTokens() }
 
-        return view;
+        return view
     }
 
-    private void bindObjectView(Recipient recipient, View view) {
-        RecipientTokenViewHolder holder = (RecipientTokenViewHolder) view.getTag();
+    private fun bindObjectView(recipient: Recipient, view: View) {
+        val holder = view.tag as RecipientTokenViewHolder
 
-        holder.vName.setText(recipient.getDisplayNameOrAddress());
-        if (tokenTextSize != FONT_DEFAULT) {
-            holder.vName.setTextSize(TypedValue.COMPLEX_UNIT_SP, tokenTextSize);
+        holder.vName.text = recipient.displayNameOrAddress
+        if (tokenTextSize != FontSizes.FONT_DEFAULT) {
+            holder.vName.setTextSize(TypedValue.COMPLEX_UNIT_SP, tokenTextSize.toFloat())
         }
 
-        RecipientAdapter.setContactPhotoOrPlaceholder(getContext(), holder.vContactPhoto, recipient);
+        RecipientAdapter.setContactPhotoOrPlaceholder(context, holder.vContactPhoto, recipient)
 
-        boolean hasCryptoProvider = cryptoProvider != null;
+        val hasCryptoProvider = cryptoProvider != null
         if (!hasCryptoProvider) {
-            holder.hideCryptoState();
-            return;
+            holder.hideCryptoState()
+            return
         }
 
-        boolean isAvailable = recipient.cryptoStatus == RecipientCryptoStatus.AVAILABLE_TRUSTED ||
-                recipient.cryptoStatus == RecipientCryptoStatus.AVAILABLE_UNTRUSTED;
+        val isAvailable = recipient.cryptoStatus == RecipientCryptoStatus.AVAILABLE_TRUSTED ||
+            recipient.cryptoStatus == RecipientCryptoStatus.AVAILABLE_UNTRUSTED
 
-        holder.showCryptoState(isAvailable, showCryptoEnabled);
+        holder.showCryptoState(isAvailable, showCryptoEnabled)
     }
 
-    private List<Recipient> parseRecipients(String text) {
+    private fun parseRecipients(text: String): List<Recipient> {
         try {
-            List<Address> parsedAddresses = emailAddressParser.parse(text);
+            val parsedAddresses = emailAddressParser.parse(text)
 
             if (parsedAddresses.isEmpty()) {
-                setError(getContext().getString(R.string.recipient_error_parse_failed));
-                return List.of();
+                error = context.getString(R.string.recipient_error_parse_failed)
+                return listOf()
             }
 
-            List<Recipient> recipients = new ArrayList<>();
-            for (Address a : parsedAddresses) {
-                recipients.add(new Recipient(a));
+            val recipients: MutableList<Recipient> = ArrayList()
+            for (a in parsedAddresses) {
+                recipients.add(Recipient(a))
             }
-            return recipients;
-        } catch (NonAsciiEmailAddressException e) {
-            setError(getContext().getString(R.string.recipient_error_non_ascii));
-            return List.of();
+            return recipients
+        } catch (e: NonAsciiEmailAddressException) {
+            error = context.getString(R.string.recipient_error_non_ascii)
+            return listOf()
         }
     }
 
-    @Override
-    protected Recipient defaultObject(String completionText) {
-        List<Recipient> recipients = parseRecipients(completionText);
+    override fun defaultObject(completionText: String): Recipient? {
+        val recipients = parseRecipients(completionText)
         if (!recipients.isEmpty()) {
-            return recipients.get(0);
+            return recipients[0]
         }
-        return null;
+        return null
     }
 
-    public void setLoaderManager(@Nullable LoaderManager loaderManager) {
-        this.loaderManager = loaderManager;
+    fun setLoaderManager(loaderManager: LoaderManager?) {
+        this.loaderManager = loaderManager
     }
 
-    @Override
-    protected void onDetachedFromWindow() {
-        super.onDetachedFromWindow();
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
         if (loaderManager != null) {
-            loaderManager.destroyLoader(LOADER_ID_ALTERNATES);
-            loaderManager.destroyLoader(LOADER_ID_FILTERING);
-            loaderManager = null;
+            loaderManager!!.destroyLoader(LOADER_ID_ALTERNATES)
+            loaderManager!!.destroyLoader(LOADER_ID_FILTERING)
+            loaderManager = null
         }
     }
 
-    @Override
-    public void onFocusChanged(boolean hasFocus, int direction, Rect previous) {
+    override fun onFocusChanged(hasFocus: Boolean, direction: Int, previous: Rect?) {
         if (!hasFocus) {
-            performCompletion();
+            performCompletion()
         }
 
-        super.onFocusChanged(hasFocus, direction, previous);
+        super.onFocusChanged(hasFocus, direction, previous)
         if (hasFocus) {
-            displayKeyboard();
+            displayKeyboard()
         }
     }
 
@@ -228,297 +199,283 @@ public class RecipientSelectView extends TokenCompleteTextView<Recipient> implem
      * predictions partially constructed. Changing either/or the Selection or Candidate start/end
      * positions, forces the IMM to reset cleaner.
      */
-    @Override
-    protected void replaceText(CharSequence text) {
-        super.replaceText(text);
+    override fun replaceText(text: CharSequence) {
+        super.replaceText(text)
 
-        InputMethodManager imm = (InputMethodManager) getContext().getSystemService(
-                Context.INPUT_METHOD_SERVICE);
-        imm.updateSelection(this, getSelectionStart(), getSelectionEnd(), -1, -1);
+        val imm = context.getSystemService(
+            Context.INPUT_METHOD_SERVICE
+        ) as InputMethodManager
+        imm.updateSelection(this, selectionStart, selectionEnd, -1, -1)
     }
 
-    private void displayKeyboard() {
-        InputMethodManager imm = (InputMethodManager) getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
-        if (imm == null) {
-            return;
-        }
-        imm.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT);
+    private fun displayKeyboard() {
+        val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+            ?: return
+        imm.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT)
     }
 
-    @Override
-    public void showDropDown() {
-        boolean cursorIsValid = adapter != null;
+    override fun showDropDown() {
+        val cursorIsValid = adapter != null
         if (!cursorIsValid) {
-            return;
+            return
         }
 
-        super.showDropDown();
+        super.showDropDown()
     }
 
-    @Override
-    public void performCompletion() {
-        if (getListSelection() == ListView.INVALID_POSITION && enoughToFilter()) {
-            List<Recipient> recipients = parseRecipients(currentCompletionText());
+    override fun performCompletion() {
+        if (listSelection == ListView.INVALID_POSITION && enoughToFilter()) {
+            val recipients = parseRecipients(currentCompletionText())
             if (!recipients.isEmpty()) {
-                clearCompletionText();
-                for (Recipient r : recipients) {
-                    addObjectSync(r);
+                clearCompletionText()
+                for (r in recipients) {
+                    addObjectSync(r)
                 }
             }
         } else {
-            super.performCompletion();
+            super.performCompletion()
         }
     }
 
-    @Override
-    protected void performFiltering(@NonNull CharSequence text, int keyCode) {
+    override fun performFiltering(text: CharSequence, keyCode: Int) {
         if (loaderManager == null) {
-            return;
+            return
         }
 
-        String query = currentCompletionText();
-        if (TextUtils.isEmpty(query) || query.length() < MINIMUM_LENGTH_FOR_FILTERING) {
-            loaderManager.destroyLoader(LOADER_ID_FILTERING);
-            return;
+        val query = currentCompletionText()
+        if (TextUtils.isEmpty(query) || query.length < MINIMUM_LENGTH_FOR_FILTERING) {
+            loaderManager!!.destroyLoader(LOADER_ID_FILTERING)
+            return
         }
 
-        Bundle args = new Bundle();
-        args.putString(ARG_QUERY, query);
-        loaderManager.restartLoader(LOADER_ID_FILTERING, args, this);
+        val args = Bundle()
+        args.putString(ARG_QUERY, query)
+        loaderManager!!.restartLoader<List<Recipient>>(
+            LOADER_ID_FILTERING, args,
+            this
+        )
     }
 
-    public void setCryptoProvider(@Nullable String cryptoProvider) {
-        this.cryptoProvider = cryptoProvider;
+    fun setCryptoProvider(cryptoProvider: String?) {
+        this.cryptoProvider = cryptoProvider
     }
 
-    public void setShowCryptoEnabled(boolean showCryptoEnabled) {
-        this.showCryptoEnabled = showCryptoEnabled;
+    fun setShowCryptoEnabled(showCryptoEnabled: Boolean) {
+        this.showCryptoEnabled = showCryptoEnabled
 
-        redrawAllTokens();
+        redrawAllTokens()
     }
 
-    private void redrawAllTokens() {
-        Editable text = getText();
-        if (text == null) {
-            return;
+    private fun redrawAllTokens() {
+        val text = text ?: return
+
+        val recipientSpans = text.getSpans(
+            0, text.length,
+            RecipientTokenSpan::class.java
+        )
+        for (recipientSpan in recipientSpans) {
+            bindObjectView(recipientSpan.token!!, recipientSpan.view)
         }
 
-        RecipientTokenSpan[] recipientSpans = text.getSpans(0, text.length(), RecipientTokenSpan.class);
-        for (RecipientTokenSpan recipientSpan : recipientSpans) {
-            bindObjectView(recipientSpan.getToken(), recipientSpan.view);
-        }
-
-        invalidate();
-        redrawTokens();
-        invalidateCursorPositionHack();
+        invalidate()
+        redrawTokens()
+        invalidateCursorPositionHack()
     }
 
-    public void addRecipients(Recipient... recipients) {
-        for (Recipient recipient : recipients) {
-            addObjectSync(recipient);
+    fun addRecipients(vararg recipients: Recipient?) {
+        for (recipient in recipients) {
+            addObjectSync(recipient)
         }
     }
 
-    public Address[] getAddresses() {
-        List<Recipient> recipients = getObjects();
-        Address[] address = new Address[recipients.size()];
-        for (int i = 0; i < address.length; i++) {
-            address[i] = recipients.get(i).address;
-        }
-
-        return address;
-    }
-
-    private void showAlternates(Recipient recipient) {
-        if (loaderManager == null) {
-            return;
-        }
-
-        InputMethodManager imm = (InputMethodManager) getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
-        imm.hideSoftInputFromWindow(getWindowToken(), 0);
-
-        alternatesPopupRecipient = recipient;
-        loaderManager.restartLoader(LOADER_ID_ALTERNATES, null, RecipientSelectView.this);
-    }
-
-    public void postShowAlternatesPopup(final List<Recipient> data) {
-        // We delay this call so the soft keyboard is gone by the time the popup is layouted
-        new Handler().post(new Runnable() {
-            @Override
-            public void run() {
-                showAlternatesPopup(data);
+    val addresses: Array<Address?>
+        get() {
+            val recipients = objects
+            val address =
+                arrayOfNulls<Address>(recipients.size)
+            for (i in address.indices) {
+                address[i] = recipients[i]!!.address
             }
-        });
+
+            return address
+        }
+
+    private fun showAlternates(recipient: Recipient?) {
+        if (loaderManager == null) {
+            return
+        }
+
+        val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+        imm.hideSoftInputFromWindow(windowToken, 0)
+
+        alternatesPopupRecipient = recipient
+        loaderManager!!.restartLoader<List<Recipient>>(
+            LOADER_ID_ALTERNATES, null,
+            this@RecipientSelectView
+        )
     }
 
-    public void showAlternatesPopup(List<Recipient> data) {
+    fun postShowAlternatesPopup(data: List<Recipient?>) {
+        // We delay this call so the soft keyboard is gone by the time the popup is layouted
+        Handler().post { showAlternatesPopup(data) }
+    }
+
+    fun showAlternatesPopup(data: List<Recipient?>) {
         if (loaderManager == null) {
-            return;
+            return
         }
 
         // Copy anchor settings from the autocomplete dropdown
-        View anchorView = getRootView().findViewById(getDropDownAnchor());
-        alternatesPopup.setAnchorView(anchorView);
-        alternatesPopup.setWidth(getDropDownWidth());
+        val anchorView = rootView.findViewById<View>(dropDownAnchor)
+        alternatesPopup!!.anchorView = anchorView
+        alternatesPopup!!.width = dropDownWidth
 
-        alternatesAdapter.setCurrentRecipient(alternatesPopupRecipient);
-        alternatesAdapter.setAlternateRecipientInfo(data);
+        alternatesAdapter!!.setCurrentRecipient(alternatesPopupRecipient)
+        alternatesAdapter!!.setAlternateRecipientInfo(data)
 
         // Clear the checked item.
-        alternatesPopup.show();
-        ListView listView = alternatesPopup.getListView();
-        listView.setChoiceMode(ListView.CHOICE_MODE_SINGLE);
+        alternatesPopup!!.show()
+        val listView = alternatesPopup!!.listView
+        listView!!.choiceMode = ListView.CHOICE_MODE_SINGLE
     }
 
-    @Override
-    public boolean onKeyPreIme(int keyCode, KeyEvent event) {
-        if (keyCode == KeyEvent.KEYCODE_BACK && alternatesPopup.isShowing()) {
-            alternatesPopup.dismiss();
-            return true;
+    override fun onKeyPreIme(keyCode: Int, event: KeyEvent): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_BACK && alternatesPopup!!.isShowing) {
+            alternatesPopup!!.dismiss()
+            return true
         }
-        return super.onKeyPreIme(keyCode, event);
+        return super.onKeyPreIme(keyCode, event)
     }
 
-    @Override
-    public boolean onKeyDown(int keyCode, @NonNull KeyEvent event) {
-        alternatesPopup.dismiss();
-        return super.onKeyDown(keyCode, event);
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        alternatesPopup!!.dismiss()
+        return super.onKeyDown(keyCode, event)
     }
 
-    @Override
-    public Loader<List<Recipient>> onCreateLoader(int id, Bundle args) {
-        switch (id) {
-            case LOADER_ID_FILTERING: {
-                String query = args != null && args.containsKey(ARG_QUERY) ? args.getString(ARG_QUERY) : "";
-                adapter.setHighlight(query);
-                return new RecipientLoader(getContext(), cryptoProvider, query);
+    override fun onCreateLoader(id: Int, args: Bundle?): Loader<List<Recipient?>> {
+        when (id) {
+            LOADER_ID_FILTERING -> {
+                val query = if (args != null && args.containsKey(ARG_QUERY)) args.getString(ARG_QUERY) else ""
+                adapter!!.setHighlight(query)
+                return RecipientLoader(context, cryptoProvider, query)
             }
-            case LOADER_ID_ALTERNATES: {
-                Uri contactLookupUri = alternatesPopupRecipient.getContactLookupUri();
-                if (contactLookupUri != null) {
-                    return new RecipientLoader(getContext(), cryptoProvider, contactLookupUri, true);
+
+            LOADER_ID_ALTERNATES -> {
+                val contactLookupUri = alternatesPopupRecipient!!.contactLookupUri
+                return if (contactLookupUri != null) {
+                    RecipientLoader(context, cryptoProvider, contactLookupUri, true)
                 } else {
-                    return new RecipientLoader(getContext(), cryptoProvider, alternatesPopupRecipient.address);
+                    RecipientLoader(context, cryptoProvider, alternatesPopupRecipient!!.address)
                 }
             }
         }
 
-        throw new IllegalStateException("Unknown Loader ID: " + id);
+        throw IllegalStateException("Unknown Loader ID: $id")
     }
 
-    @Override
-    public void onLoadFinished(Loader<List<Recipient>> loader, List<Recipient> data) {
+    override fun onLoadFinished(loader: Loader<List<Recipient?>>, data: List<Recipient?>) {
         if (loaderManager == null) {
-            return;
+            return
         }
 
-        switch (loader.getId()) {
-            case LOADER_ID_FILTERING: {
-                adapter.setRecipients(data);
-                break;
+        when (loader.id) {
+            LOADER_ID_FILTERING -> {
+                adapter!!.setRecipients(data)
             }
-            case LOADER_ID_ALTERNATES: {
-                postShowAlternatesPopup(data);
-                loaderManager.destroyLoader(LOADER_ID_ALTERNATES);
-                break;
+
+            LOADER_ID_ALTERNATES -> {
+                postShowAlternatesPopup(data)
+                loaderManager!!.destroyLoader(LOADER_ID_ALTERNATES)
             }
         }
     }
 
-    @Override
-    public void onLoaderReset(Loader<List<Recipient>> loader) {
-        if (loader.getId() == LOADER_ID_FILTERING) {
-            adapter.setHighlight(null);
-            adapter.setRecipients(null);
+    override fun onLoaderReset(loader: Loader<List<Recipient?>>) {
+        if (loader.id == LOADER_ID_FILTERING) {
+            adapter!!.setHighlight(null)
+            adapter!!.setRecipients(null)
         }
     }
 
-    public boolean tryPerformCompletion() {
+    fun tryPerformCompletion(): Boolean {
         if (!hasUncompletedText()) {
-            return false;
+            return false
         }
-        int previousNumRecipients = getTokenCount();
-        performCompletion();
-        int numRecipients = getTokenCount();
+        val previousNumRecipients = tokenCount
+        performCompletion()
+        val numRecipients = tokenCount
 
-        return previousNumRecipients != numRecipients;
+        return previousNumRecipients != numRecipients
     }
 
-    private int getTokenCount() {
-        return getObjects().size();
+    private val tokenCount: Int
+        get() = objects.size
+
+    fun hasUncompletedText(): Boolean {
+        val currentCompletionText = currentCompletionText()
+        return !TextUtils.isEmpty(currentCompletionText) && !isPlaceholderText(currentCompletionText)
     }
 
-    public boolean hasUncompletedText() {
-        String currentCompletionText = currentCompletionText();
-        return !TextUtils.isEmpty(currentCompletionText) && !isPlaceholderText(currentCompletionText);
+    override fun onRecipientRemove(currentRecipient: Recipient) {
+        alternatesPopup!!.dismiss()
+        removeObjectSync(currentRecipient)
     }
 
-    static private boolean isPlaceholderText(String currentCompletionText) {
-        // TODO string matching here is sort of a hack, but it's somewhat reliable and the info isn't easily available
-        return currentCompletionText.startsWith("+") && currentCompletionText.substring(1).matches("[0-9]+");
-    }
+    override fun onRecipientChange(recipientToReplace: Recipient, alternateAddress: Recipient) {
+        alternatesPopup!!.dismiss()
 
-    @Override
-    public void onRecipientRemove(Recipient currentRecipient) {
-        alternatesPopup.dismiss();
-        removeObjectSync(currentRecipient);
-    }
-
-    @Override
-    public void onRecipientChange(Recipient recipientToReplace, Recipient alternateAddress) {
-        alternatesPopup.dismiss();
-
-        List<Recipient> currentRecipients = getObjects();
-        int indexOfRecipient = currentRecipients.indexOf(recipientToReplace);
+        val currentRecipients = objects
+        val indexOfRecipient = currentRecipients.indexOf(recipientToReplace)
         if (indexOfRecipient == -1) {
-            Timber.e("Tried to refresh invalid view token!");
-            return;
+            e.e("Tried to refresh invalid view token!")
+            return
         }
-        Recipient currentRecipient = currentRecipients.get(indexOfRecipient);
+        val currentRecipient = currentRecipients[indexOfRecipient]
 
-        currentRecipient.address = alternateAddress.address;
-        currentRecipient.addressLabel = alternateAddress.addressLabel;
-        currentRecipient.cryptoStatus = alternateAddress.cryptoStatus;
+        currentRecipient!!.address = alternateAddress.address
+        currentRecipient.addressLabel = alternateAddress.addressLabel
+        currentRecipient.cryptoStatus = alternateAddress.cryptoStatus
 
-        View recipientTokenView = getTokenViewForRecipient(currentRecipient);
+        val recipientTokenView = getTokenViewForRecipient(currentRecipient)
         if (recipientTokenView == null) {
-            Timber.e("Tried to refresh invalid view token!");
-            return;
+            e.e("Tried to refresh invalid view token!")
+            return
         }
 
-        bindObjectView(currentRecipient, recipientTokenView);
+        bindObjectView(currentRecipient, recipientTokenView)
 
         if (listener != null) {
-            listener.onTokenChanged(currentRecipient);
+            listener!!.onTokenChanged(currentRecipient)
         }
 
-        invalidate();
-        redrawTokens();
-        invalidateCursorPositionHack();
+        invalidate()
+        redrawTokens()
+        invalidateCursorPositionHack()
     }
 
-    @Override
-    public void onRecipientAddressCopy(Recipient currentRecipient) {
-        ClipboardManager clipboardManager = DI.get(ClipboardManager.class);
-        String label = getContext().getResources().getString(R.string.clipboard_label_name_and_email_address);
-        String nameAndEmailAddress = currentRecipient.address.toString();
-        clipboardManager.setText(label, nameAndEmailAddress);
+    override fun onRecipientAddressCopy(currentRecipient: Recipient) {
+        val clipboardManager = get(
+            ClipboardManager::class.java
+        )
+        val label = context.resources.getString(R.string.clipboard_label_name_and_email_address)
+        val nameAndEmailAddress = currentRecipient.address.toString()
+        clipboardManager.setText(label, nameAndEmailAddress)
     }
 
     /**
      * Changing the size of our RecipientTokenSpan doesn't seem to redraw the cursor in the new position. This will
      * make sure the cursor position is recalculated.
      */
-    private void invalidateCursorPositionHack() {
-        int oldStart = getSelectionStart();
-        int oldEnd = getSelectionEnd();
+    private fun invalidateCursorPositionHack() {
+        val oldStart = selectionStart
+        val oldEnd = selectionEnd
 
         // The selection values need to actually change in order for the cursor to be redrawn. If the cursor already
         // is at position 0 this won't trigger a redraw. But that's fine because the size of our span can't influence
         // cursor position 0.
-        setSelection(0);
+        setSelection(0)
 
-        setSelection(oldStart, oldEnd);
+        setSelection(oldStart, oldEnd)
     }
 
     /**
@@ -526,241 +483,255 @@ public class RecipientSelectView extends TokenCompleteTextView<Recipient> implem
      * functionality, but using the custom RecipientTokenSpan class which allows us to
      * retrieve the view for redrawing at a later point.
      */
-    @Override
-    protected TokenImageSpan buildSpanForObject(Recipient obj) {
+    override fun buildSpanForObject(obj: Recipient?): TokenImageSpan? {
         if (obj == null) {
-            return null;
+            return null
         }
 
-        View tokenView = getViewForObject(obj);
-        return new RecipientTokenSpan(tokenView, obj);
+        val tokenView = getViewForObject(obj)
+        return RecipientTokenSpan(tokenView, obj)
     }
 
     /**
      * Find the token view tied to a given recipient. This method relies on spans to
      * be of the RecipientTokenSpan class, as created by the buildSpanForObject method.
      */
-    private View getTokenViewForRecipient(Recipient currentRecipient) {
-        Editable text = getText();
-        if (text == null) {
-            return null;
-        }
+    private fun getTokenViewForRecipient(currentRecipient: Recipient?): View? {
+        val text = text ?: return null
 
-        RecipientTokenSpan[] recipientSpans = text.getSpans(0, text.length(), RecipientTokenSpan.class);
-        for (RecipientTokenSpan recipientSpan : recipientSpans) {
-            if (recipientSpan.getToken().equals(currentRecipient)) {
-                return recipientSpan.view;
+        val recipientSpans = text.getSpans(
+            0, text.length,
+            RecipientTokenSpan::class.java
+        )
+        for (recipientSpan in recipientSpans) {
+            if (recipientSpan.token == currentRecipient) {
+                return recipientSpan.view
             }
         }
 
-        return null;
+        return null
     }
 
     /**
      * We use a specialized version of TokenCompleteTextView.TokenListener as well,
      * adding a callback for onTokenChanged.
      */
-    public void setTokenListener(TokenListener<Recipient> listener) {
-        super.setTokenListener(listener);
-        this.listener = listener;
+    fun setTokenListener(listener: TokenListener<Recipient?>?) {
+        super.setTokenListener(listener)
+        this.listener = listener
     }
 
-
-    public enum RecipientCryptoStatus {
+    enum class RecipientCryptoStatus {
         UNDEFINED,
         UNAVAILABLE,
         AVAILABLE_UNTRUSTED,
         AVAILABLE_TRUSTED
     }
 
-    public interface TokenListener<T> extends TokenCompleteTextView.TokenListener<T> {
-        void onTokenChanged(T token);
+    interface TokenListener<T> : TokenCompleteTextView.TokenListener<T> {
+        fun onTokenChanged(token: T)
     }
 
-    private class RecipientTokenSpan extends TokenImageSpan {
-        private final View view;
+    private inner class RecipientTokenSpan(view: View?, recipient: Recipient?) :
+        TokenImageSpan(view, recipient) {
+        private val view: View
 
-        public RecipientTokenSpan(View view, Recipient recipient) {
-            super(view, recipient);
-            this.view = view;
+        init {
+            this.view = view
         }
 
-        @Override
-        public void onClick() {
-            showAlternates(getToken());
+        override fun onClick() {
+            showAlternates(token)
         }
 
-        @Override
-        public void draw(@NonNull Canvas canvas, CharSequence text, int start, int end, float x, int top, int y,
-                int bottom, @NonNull Paint paint) {
-            super.draw(canvas, text, start, end, x, top, y, bottom, paint);
+        override fun draw(
+            canvas: Canvas, text: CharSequence, start: Int, end: Int, x: Float, top: Int, y: Int,
+            bottom: Int, paint: Paint
+        ) {
+            super.draw(canvas, text, start, end, x, top, y, bottom, paint)
 
             // Dispatch onPreDraw event so image loading using Glide will work properly.
-            view.findViewById(R.id.contact_photo).getViewTreeObserver().dispatchOnPreDraw();
+            view.findViewById<View>(R.id.contact_photo).viewTreeObserver.dispatchOnPreDraw()
         }
     }
 
-    private static class RecipientTokenViewHolder {
-        final MaterialTextView vName;
-        final CircleImageView vContactPhoto;
-        final View cryptoStatus;
-        final View cryptoStatusEnabled;
-        final View cryptoStatusError;
+    private class RecipientTokenViewHolder(view: View) {
+        val vName: MaterialTextView = view.findViewById(android.R.id.text1)
+        val vContactPhoto: CircleImageView =
+            view.findViewById(R.id.contact_photo)
+        val cryptoStatus: View = view.findViewById(R.id.contact_crypto_status_icon)
+        val cryptoStatusEnabled: View = view.findViewById(R.id.contact_crypto_status_icon_enabled)
+        val cryptoStatusError: View = view.findViewById(R.id.contact_crypto_status_icon_error)
 
-
-        RecipientTokenViewHolder(View view) {
-            vName = view.findViewById(android.R.id.text1);
-            vContactPhoto = view.findViewById(R.id.contact_photo);
-
-            cryptoStatus = view.findViewById(R.id.contact_crypto_status_icon);
-            cryptoStatusEnabled = view.findViewById(R.id.contact_crypto_status_icon_enabled);
-            cryptoStatusError = view.findViewById(R.id.contact_crypto_status_icon_error);
+        fun showCryptoState(isAvailable: Boolean, isShowEnabled: Boolean) {
+            cryptoStatus.visibility =
+                if (!isShowEnabled && isAvailable) VISIBLE else GONE
+            cryptoStatusEnabled.visibility =
+                if (isShowEnabled && isAvailable) VISIBLE else GONE
+            cryptoStatusError.visibility =
+                if (isShowEnabled && !isAvailable) VISIBLE else GONE
         }
 
-        void showCryptoState(boolean isAvailable, boolean isShowEnabled) {
-            cryptoStatus.setVisibility(!isShowEnabled && isAvailable ? View.VISIBLE : View.GONE);
-            cryptoStatusEnabled.setVisibility(isShowEnabled && isAvailable ? View.VISIBLE : View.GONE);
-            cryptoStatusError.setVisibility(isShowEnabled && !isAvailable ? View.VISIBLE : View.GONE);
-        }
-
-        void hideCryptoState() {
-            cryptoStatus.setVisibility(View.GONE);
-            cryptoStatusEnabled.setVisibility(View.GONE);
-            cryptoStatusError.setVisibility(View.GONE);
+        fun hideCryptoState() {
+            cryptoStatus.visibility = GONE
+            cryptoStatusEnabled.visibility = GONE
+            cryptoStatusError.visibility = GONE
         }
     }
 
-    public static class Recipient implements Serializable {
-        @Nullable // null means the address is not associated with a contact
-        public final Long contactId;
-        public final String contactLookupKey;
+    class Recipient : Serializable {
+        // null means the address is not associated with a contact
+        val contactId: Long?
+        val contactLookupKey: String?
 
-        @NonNull
-        public Address address;
+        @JvmField
+        var address: Address
 
-        public String addressLabel;
-        public final int timesContacted;
-        public final String sortKey;
-        public final boolean starred;
+        @JvmField
+        var addressLabel: String? = null
+        @JvmField
+        val timesContacted: Int
+        @JvmField
+        val sortKey: String?
+        @JvmField
+        val starred: Boolean
 
-        @Nullable // null if the contact has no photo. transient because we serialize this manually, see below.
-        public transient Uri photoThumbnailUri;
+        @JvmField
+        @Transient
+        // null if the contact has no photo. transient because we serialize this manually, see below.
+        var photoThumbnailUri: Uri? = null
 
-        @NonNull
-        private RecipientCryptoStatus cryptoStatus;
+        var cryptoStatus: RecipientCryptoStatus
 
-        public Recipient(@NonNull Address address) {
-            this.address = address;
-            this.contactId = null;
-            this.cryptoStatus = RecipientCryptoStatus.UNDEFINED;
-            this.contactLookupKey = null;
-            timesContacted = 0;
-            sortKey = null;
-            starred = false;
+        constructor(address: Address) {
+            this.address = address
+            this.contactId = null
+            this.cryptoStatus = RecipientCryptoStatus.UNDEFINED
+            this.contactLookupKey = null
+            timesContacted = 0
+            sortKey = null
+            starred = false
         }
 
-        public Recipient(String name, String email, String addressLabel, long contactId, String lookupKey,
-                int timesContacted, String sortKey, boolean starred) {
-            this.address = new Address(email, name);
-            this.contactId = contactId;
-            this.addressLabel = addressLabel;
-            this.cryptoStatus = RecipientCryptoStatus.UNDEFINED;
-            this.contactLookupKey = lookupKey;
-            this.timesContacted = timesContacted;
-            this.sortKey = sortKey;
-            this.starred = starred;
+        constructor(
+            name: String?, email: String?, addressLabel: String?, contactId: Long, lookupKey: String?,
+            timesContacted: Int, sortKey: String?, starred: Boolean
+        ) {
+            this.address = Address(email, name)
+            this.contactId = contactId
+            this.addressLabel = addressLabel
+            this.cryptoStatus = RecipientCryptoStatus.UNDEFINED
+            this.contactLookupKey = lookupKey
+            this.timesContacted = timesContacted
+            this.sortKey = sortKey
+            this.starred = starred
         }
 
-        public String getDisplayNameOrAddress() {
-            final String displayName = K9.isShowCorrespondentNames() ? getDisplayName() : null;
+        val displayNameOrAddress: String
+            get() {
+                val displayName =
+                    if (isShowCorrespondentNames) displayName else null
 
-            if (displayName != null) {
-                return displayName;
+                if (displayName != null) {
+                    return displayName
+                }
+
+                return address.address
             }
 
-            return address.getAddress();
-        }
+        val isValidEmailAddress: Boolean
+            get() = (address.address != null)
 
-        public boolean isValidEmailAddress() {
-            return (address.getAddress() != null);
-        }
-
-        public String getDisplayNameOrUnknown(Context context) {
-            String displayName = getDisplayName();
+        fun getDisplayNameOrUnknown(context: Context): String {
+            val displayName = displayName
             if (displayName != null) {
-                return displayName;
+                return displayName
             }
 
-            return context.getString(R.string.unknown_recipient);
+            return context.getString(R.string.unknown_recipient)
         }
 
-        public String getNameOrUnknown(Context context) {
-            String name = address.getPersonal();
+        fun getNameOrUnknown(context: Context): String {
+            val name = address.personal
             if (name != null) {
-                return name;
+                return name
             }
 
-            return context.getString(R.string.unknown_recipient);
+            return context.getString(R.string.unknown_recipient)
         }
 
-        private String getDisplayName() {
-            if (TextUtils.isEmpty(address.getPersonal())) {
-                return null;
+        private val displayName: String?
+            get() {
+                if (TextUtils.isEmpty(address.personal)) {
+                    return null
+                }
+
+                return address.personal
             }
 
-            return address.getPersonal();
+        fun getCryptoStatus(): RecipientCryptoStatus {
+            return cryptoStatus
         }
 
-        @NonNull
-        public RecipientCryptoStatus getCryptoStatus() {
-            return cryptoStatus;
+        fun setCryptoStatus(cryptoStatus: RecipientCryptoStatus) {
+            this.cryptoStatus = cryptoStatus
         }
 
-        public void setCryptoStatus(@NonNull RecipientCryptoStatus cryptoStatus) {
-            this.cryptoStatus = cryptoStatus;
-        }
+        val contactLookupUri: Uri?
+            get() {
+                if (contactId == null) {
+                    return null
+                }
 
-        @Nullable
-        public Uri getContactLookupUri() {
-            if (contactId == null) {
-                return null;
+                return ContactsContract.Contacts.getLookupUri(contactId, contactLookupKey)
             }
 
-            return Contacts.getLookupUri(contactId, contactLookupKey);
-        }
-
-        @Override
-        public boolean equals(Object o) {
+        override fun equals(o: Any?): Boolean {
             // Equality is entirely up to the address
-            return o instanceof Recipient && address.equals(((Recipient) o).address);
+            return o is Recipient && address == o.address
         }
 
-        @NonNull
-        @Override
-        public String toString() {
-            return address.toString();
+        override fun toString(): String {
+            return address.toString()
         }
 
-        private void writeObject(ObjectOutputStream oos) throws IOException {
-            oos.defaultWriteObject();
+        @Throws(IOException::class)
+        private fun writeObject(oos: ObjectOutputStream) {
+            oos.defaultWriteObject()
 
             // custom serialization, Android's Uri class is not serializable
             if (photoThumbnailUri != null) {
-                oos.writeInt(1);
-                oos.writeUTF(photoThumbnailUri.toString());
+                oos.writeInt(1)
+                oos.writeUTF(photoThumbnailUri.toString())
             } else {
-                oos.writeInt(0);
+                oos.writeInt(0)
             }
         }
 
-        private void readObject(ObjectInputStream ois) throws ClassNotFoundException, IOException {
-            ois.defaultReadObject();
+        @Throws(ClassNotFoundException::class, IOException::class)
+        private fun readObject(ois: ObjectInputStream) {
+            ois.defaultReadObject()
 
             // custom deserialization, Android's Uri class is not serializable
             if (ois.readInt() != 0) {
-                String uriString = ois.readUTF();
-                photoThumbnailUri = Uri.parse(uriString);
+                val uriString = ois.readUTF()
+                photoThumbnailUri = Uri.parse(uriString)
             }
+        }
+    }
+
+    companion object {
+        private const val MINIMUM_LENGTH_FOR_FILTERING = 2
+
+        private const val ARG_QUERY = "query"
+
+        private const val LOADER_ID_FILTERING = 0
+        private const val LOADER_ID_ALTERNATES = 1
+
+        private fun isPlaceholderText(currentCompletionText: String): Boolean {
+            // TODO string matching here is sort of a hack, but it's somewhat reliable and the info isn't easily available
+            return currentCompletionText.startsWith("+") && currentCompletionText.substring(1)
+                .matches("[0-9]+".toRegex())
         }
     }
 }
