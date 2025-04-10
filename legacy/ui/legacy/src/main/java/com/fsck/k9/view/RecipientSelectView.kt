@@ -621,6 +621,8 @@ class RecipientSelectView : TokenCompleteTextView<RecipientSelectView.Recipient>
             return other is Recipient && address == other.address
         }
 
+        override fun hashCode() = address.hashCode()
+
         override fun toString(): String {
             return address.toString()
         }
