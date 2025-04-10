@@ -22,6 +22,6 @@ class RecipientCircleImageView @JvmOverloads constructor(
     }
 }
 
-interface OnSetImageDrawableListener {
+fun interface OnSetImageDrawableListener {
     fun onSetImageDrawable()
 }

@@ -28,6 +28,7 @@ import com.fsck.k9.activity.AlternateRecipientAdapter.AlternateRecipientListener
 import com.fsck.k9.activity.compose.RecipientAdapter
 import com.fsck.k9.activity.compose.RecipientLoader
 import com.fsck.k9.helper.ClipboardManager
+import com.fsck.k9.logging.Timber
 import com.fsck.k9.mail.Address
 import com.fsck.k9.ui.R
 import com.fsck.k9.ui.compose.OnSetImageDrawableListener
@@ -40,8 +41,8 @@ import java.io.ObjectInputStream
 import java.io.ObjectOutputStream
 import java.io.Serializable
 
-class RecipientSelectView : TokenCompleteTextView<RecipientSelectView.Recipient?>,
-    LoaderManager.LoaderCallbacks<List<RecipientSelectView.Recipient?>>,
+class RecipientSelectView : TokenCompleteTextView<RecipientSelectView.Recipient>,
+    LoaderManager.LoaderCallbacks<List<RecipientSelectView.Recipient>>,
     AlternateRecipientListener {
     private val emailAddressParser = get(
         UserInputEmailAddressParser::class.java
@@ -352,7 +353,7 @@ class RecipientSelectView : TokenCompleteTextView<RecipientSelectView.Recipient?
         return super.onKeyDown(keyCode, event)
     }
 
-    override fun onCreateLoader(id: Int, args: Bundle?): Loader<List<Recipient?>> {
+    override fun onCreateLoader(id: Int, args: Bundle?): Loader<List<Recipient>> {
         when (id) {
             LOADER_ID_FILTERING -> {
                 val query = if (args != null && args.containsKey(ARG_QUERY)) args.getString(ARG_QUERY) else ""
@@ -373,7 +374,7 @@ class RecipientSelectView : TokenCompleteTextView<RecipientSelectView.Recipient?
         throw IllegalStateException("Unknown Loader ID: $id")
     }
 
-    override fun onLoadFinished(loader: Loader<List<Recipient?>>, data: List<Recipient?>) {
+    override fun onLoadFinished(loader: Loader<List<Recipient>>, data: List<Recipient>) {
         if (loaderManager == null) {
             return
         }
@@ -390,7 +391,7 @@ class RecipientSelectView : TokenCompleteTextView<RecipientSelectView.Recipient?
         }
     }
 
-    override fun onLoaderReset(loader: Loader<List<Recipient?>>) {
+    override fun onLoaderReset(loader: Loader<List<Recipient>>) {
         if (loader.id == LOADER_ID_FILTERING) {
             adapter!!.setHighlight(null)
             adapter!!.setRecipients(null)
@@ -427,7 +428,7 @@ class RecipientSelectView : TokenCompleteTextView<RecipientSelectView.Recipient?
         val currentRecipients = objects
         val indexOfRecipient = currentRecipients.indexOf(recipientToReplace)
         if (indexOfRecipient == -1) {
-            e.e("Tried to refresh invalid view token!")
+            Timber.e("Tried to refresh invalid view token!")
             return
         }
         val currentRecipient = currentRecipients[indexOfRecipient]
@@ -438,7 +439,7 @@ class RecipientSelectView : TokenCompleteTextView<RecipientSelectView.Recipient?
 
         val recipientTokenView = getTokenViewForRecipient(currentRecipient)
         if (recipientTokenView == null) {
-            e.e("Tried to refresh invalid view token!")
+            Timber.e("Tried to refresh invalid view token!")
             return
         }
 
@@ -532,13 +533,8 @@ class RecipientSelectView : TokenCompleteTextView<RecipientSelectView.Recipient?
         fun onTokenChanged(token: T)
     }
 
-    private inner class RecipientTokenSpan(view: View?, recipient: Recipient?) :
+    private inner class RecipientTokenSpan(val view: View, recipient: Recipient?) :
         TokenImageSpan(view, recipient) {
-        private val view: View
-
-        init {
-            this.view = view
-        }
 
         override fun onClick() {
             showAlternates(token)
