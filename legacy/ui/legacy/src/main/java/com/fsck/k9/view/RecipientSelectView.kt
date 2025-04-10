@@ -7,7 +7,6 @@ import android.graphics.Paint
 import android.graphics.Rect
 import android.net.Uri
 import android.os.Bundle
-import android.os.Handler
 import android.provider.ContactsContract
 import android.text.TextUtils
 import android.util.AttributeSet
@@ -165,7 +164,7 @@ class RecipientSelectView : TokenCompleteTextView<RecipientSelectView.Recipient>
 
     override fun defaultObject(completionText: String): Recipient? {
         val recipients = parseRecipients(completionText)
-        if (!recipients.isEmpty()) {
+        if (recipients.isNotEmpty()) {
             return recipients[0]
         }
         return null
@@ -211,7 +210,6 @@ class RecipientSelectView : TokenCompleteTextView<RecipientSelectView.Recipient>
 
     private fun displayKeyboard() {
         val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-            ?: return
         imm.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT)
     }
 
@@ -227,7 +225,7 @@ class RecipientSelectView : TokenCompleteTextView<RecipientSelectView.Recipient>
     override fun performCompletion() {
         if (listSelection == ListView.INVALID_POSITION && enoughToFilter()) {
             val recipients = parseRecipients(currentCompletionText())
-            if (!recipients.isEmpty()) {
+            if (recipients.isNotEmpty()) {
                 clearCompletionText()
                 for (r in recipients) {
                     addObjectSync(r)
@@ -251,7 +249,7 @@ class RecipientSelectView : TokenCompleteTextView<RecipientSelectView.Recipient>
 
         val args = Bundle()
         args.putString(ARG_QUERY, query)
-        loaderManager!!.restartLoader<List<Recipient>>(
+        loaderManager!!.restartLoader(
             LOADER_ID_FILTERING, args,
             this
         )
@@ -310,7 +308,7 @@ class RecipientSelectView : TokenCompleteTextView<RecipientSelectView.Recipient>
         imm.hideSoftInputFromWindow(windowToken, 0)
 
         alternatesPopupRecipient = recipient
-        loaderManager!!.restartLoader<List<Recipient>>(
+        loaderManager!!.restartLoader(
             LOADER_ID_ALTERNATES, null,
             this@RecipientSelectView
         )
@@ -318,7 +316,7 @@ class RecipientSelectView : TokenCompleteTextView<RecipientSelectView.Recipient>
 
     fun postShowAlternatesPopup(data: List<Recipient?>) {
         // We delay this call so the soft keyboard is gone by the time the popup is layouted
-        Handler().post { showAlternatesPopup(data) }
+        handler.post { showAlternatesPopup(data) }
     }
 
     fun showAlternatesPopup(data: List<Recipient?>) {
@@ -682,9 +680,9 @@ class RecipientSelectView : TokenCompleteTextView<RecipientSelectView.Recipient>
                 return ContactsContract.Contacts.getLookupUri(contactId, contactLookupKey)
             }
 
-        override fun equals(o: Any?): Boolean {
+        override fun equals(other: Any?): Boolean {
             // Equality is entirely up to the address
-            return o is Recipient && address == o.address
+            return other is Recipient && address == other.address
         }
 
         override fun toString(): String {
