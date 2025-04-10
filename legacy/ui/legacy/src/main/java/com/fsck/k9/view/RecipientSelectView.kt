@@ -58,19 +58,11 @@ class RecipientSelectView : TokenCompleteTextView<RecipientSelectView.Recipient>
     private var listener: TokenListener<Recipient?>? = null
     private var tokenTextSize = FontSizes.FONT_DEFAULT
 
-    constructor(context: Context) : super(context) {
-        initView(context)
-    }
+    constructor(context: Context) : super(context)
+    constructor(context: Context, attrs: AttributeSet?) : super(context, attrs)
+    constructor(context: Context, attrs: AttributeSet?, defStyle: Int) : super(context, attrs, defStyle)
 
-    constructor(context: Context, attrs: AttributeSet?) : super(context, attrs) {
-        initView(context)
-    }
-
-    constructor(context: Context, attrs: AttributeSet?, defStyle: Int) : super(context, attrs, defStyle) {
-        initView(context)
-    }
-
-    private fun initView(context: Context) {
+    init {
         // TODO: validator?
 
         alternatesPopup = ListPopupWindow(context)
@@ -150,12 +142,7 @@ class RecipientSelectView : TokenCompleteTextView<RecipientSelectView.Recipient>
                 error = context.getString(R.string.recipient_error_parse_failed)
                 return listOf()
             }
-
-            val recipients: MutableList<Recipient> = ArrayList()
-            for (a in parsedAddresses) {
-                recipients.add(Recipient(a))
-            }
-            return recipients
+            return parsedAddresses.map { Recipient(it) }
         } catch (e: NonAsciiEmailAddressException) {
             error = context.getString(R.string.recipient_error_non_ascii)
             return listOf()
@@ -288,7 +275,7 @@ class RecipientSelectView : TokenCompleteTextView<RecipientSelectView.Recipient>
     }
 
     val addresses: Array<Address>
-        get() = objects.map { rec -> rec.address }.toTypedArray();
+        get() = objects.map { rec -> rec.address }.toTypedArray()
 
     private fun showAlternates(recipient: Recipient?) {
         if (loaderManager == null) {
@@ -474,12 +461,9 @@ class RecipientSelectView : TokenCompleteTextView<RecipientSelectView.Recipient>
      * retrieve the view for redrawing at a later point.
      */
     override fun buildSpanForObject(obj: Recipient?): TokenImageSpan? {
-        if (obj == null) {
-            return null
-        }
-
-        val tokenView = getViewForObject(obj)
-        return RecipientTokenSpan(tokenView, obj)
+        val recipient = obj ?: return null
+        val tokenView = getViewForObject(recipient)
+        return RecipientTokenSpan(tokenView, recipient)
     }
 
     /**
@@ -564,85 +548,54 @@ class RecipientSelectView : TokenCompleteTextView<RecipientSelectView.Recipient>
         }
     }
 
-    class Recipient : Serializable {
+    class Recipient(
+        @JvmField
+        var address: Address,
+        @JvmField
+        var addressLabel: String? = null,
         // null means the address is not associated with a contact
-        val contactId: Long?
-        val contactLookupKey: String?
-
         @JvmField
-        var address: Address
-
+        val contactId: Long? = null,
         @JvmField
-        var addressLabel: String? = null
+        val contactLookupKey: String? = null,
         @JvmField
-        val timesContacted: Int
+        val timesContacted: Int = 0,
         @JvmField
-        val sortKey: String?
+        val sortKey: String? = null,
         @JvmField
-        val starred: Boolean
-
+        val starred: Boolean = false,
+    ) : Serializable {
         @JvmField
         @Transient
         // null if the contact has no photo. transient because we serialize this manually, see below.
         var photoThumbnailUri: Uri? = null
 
-        var cryptoStatus: RecipientCryptoStatus
+        var cryptoStatus = RecipientCryptoStatus.UNDEFINED
 
-        constructor(address: Address) {
-            this.address = address
-            this.contactId = null
-            this.cryptoStatus = RecipientCryptoStatus.UNDEFINED
-            this.contactLookupKey = null
-            timesContacted = 0
-            sortKey = null
-            starred = false
-        }
-
+        // Add explicit JVM constructor for just Address
+        constructor(address: Address) : this(address, null)
         constructor(
             name: String?, email: String?, addressLabel: String?, contactId: Long, lookupKey: String?,
             timesContacted: Int, sortKey: String?, starred: Boolean
-        ) {
-            this.address = Address(email, name)
-            this.contactId = contactId
-            this.addressLabel = addressLabel
-            this.cryptoStatus = RecipientCryptoStatus.UNDEFINED
-            this.contactLookupKey = lookupKey
-            this.timesContacted = timesContacted
-            this.sortKey = sortKey
-            this.starred = starred
-        }
+        ) : this(Address(email, name), addressLabel, contactId, lookupKey, timesContacted, sortKey, starred)
 
         val displayNameOrAddress: String
             get() {
                 val displayName =
                     if (isShowCorrespondentNames) displayName else null
-
-                if (displayName != null) {
-                    return displayName
-                }
-
-                return address.address
+                return displayName ?: address.address
             }
 
         val isValidEmailAddress: Boolean
             get() = (address.address != null)
 
         fun getDisplayNameOrUnknown(context: Context): String {
-            val displayName = displayName
-            if (displayName != null) {
-                return displayName
-            }
-
-            return context.getString(R.string.unknown_recipient)
+            return displayName ?: context.getString(R.string.unknown_recipient)
         }
 
         fun getNameOrUnknown(context: Context): String {
             val name = address.personal
-            if (name != null) {
-                return name
-            }
-
-            return context.getString(R.string.unknown_recipient)
+            return name ?: context.getString(R.string.unknown_recipient)
         }
 
         private val displayName: String?
