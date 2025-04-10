@@ -287,17 +287,8 @@ class RecipientSelectView : TokenCompleteTextView<RecipientSelectView.Recipient>
         }
     }
 
-    val addresses: Array<Address?>
-        get() {
-            val recipients = objects
-            val address =
-                arrayOfNulls<Address>(recipients.size)
-            for (i in address.indices) {
-                address[i] = recipients[i]!!.address
-            }
-
-            return address
-        }
+    val addresses: Array<Address>
+        get() = objects.map { rec -> rec.address }.toTypedArray();
 
     private fun showAlternates(recipient: Recipient?) {
         if (loaderManager == null) {
@@ -662,14 +653,6 @@ class RecipientSelectView : TokenCompleteTextView<RecipientSelectView.Recipient>
 
                 return address.personal
             }
-
-        fun getCryptoStatus(): RecipientCryptoStatus {
-            return cryptoStatus
-        }
-
-        fun setCryptoStatus(cryptoStatus: RecipientCryptoStatus) {
-            this.cryptoStatus = cryptoStatus
-        }
 
         val contactLookupUri: Uri?
             get() {
