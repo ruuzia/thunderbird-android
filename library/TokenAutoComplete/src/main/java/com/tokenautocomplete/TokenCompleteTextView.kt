@@ -1,188 +1,178 @@
-package com.tokenautocomplete;
+package com.tokenautocomplete
 
-import android.content.Context;
-import android.graphics.Rect;
-import android.os.Parcel;
-import android.os.Parcelable;
-import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
-import androidx.annotation.UiThread;
-import androidx.appcompat.widget.AppCompatAutoCompleteTextView;
-import android.text.Editable;
-import android.text.InputFilter;
-import android.text.InputType;
-import android.text.Layout;
-import android.text.NoCopySpan;
-import android.text.Selection;
-import android.text.SpanWatcher;
-import android.text.Spannable;
-import android.text.SpannableStringBuilder;
-import android.text.Spanned;
-import android.text.TextUtils;
-import android.text.TextWatcher;
-import android.util.AttributeSet;
-import android.util.Log;
-import android.view.KeyEvent;
-import android.view.MotionEvent;
-import android.view.View;
-import android.view.accessibility.AccessibilityEvent;
-import android.view.inputmethod.EditorInfo;
-import android.view.inputmethod.ExtractedText;
-import android.view.inputmethod.ExtractedTextRequest;
-import android.view.inputmethod.InputConnection;
-import android.view.inputmethod.InputConnectionWrapper;
-import android.view.inputmethod.InputMethodManager;
-import android.widget.Filter;
-import android.widget.ListView;
-import android.widget.TextView;
-
-import java.io.Serializable;
-import java.lang.reflect.ParameterizedType;
-import java.lang.reflect.Type;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
+import android.content.Context
+import android.graphics.Rect
+import android.os.Parcel
+import android.os.Parcelable
+import android.text.Editable
+import android.text.InputFilter
+import android.text.InputType
+import android.text.Layout
+import android.text.NoCopySpan
+import android.text.Selection
+import android.text.SpanWatcher
+import android.text.Spannable
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.TextUtils
+import android.text.TextWatcher
+import android.util.AttributeSet
+import android.util.Log
+import android.view.KeyEvent
+import android.view.MotionEvent
+import android.view.View
+import android.view.accessibility.AccessibilityEvent
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.ExtractedText
+import android.view.inputmethod.ExtractedTextRequest
+import android.view.inputmethod.InputConnection
+import android.view.inputmethod.InputConnectionWrapper
+import android.view.inputmethod.InputMethodManager
+import android.widget.ListView
+import android.widget.TextView
+import android.widget.TextView.OnEditorActionListener
+import androidx.annotation.UiThread
+import androidx.appcompat.widget.AppCompatAutoCompleteTextView
+import com.tokenautocomplete.TokenCompleteTextView
+import java.io.Serializable
+import java.lang.reflect.ParameterizedType
+import kotlin.math.max
 
 /**
  * GMail style auto complete view with easy token customization
  * override getViewForObject to provide your token view
- * <br>
+ * <br></br>
  * Created by mgod on 9/12/13.
  *
  * @author mgod
  */
-public abstract class TokenCompleteTextView<T> extends AppCompatAutoCompleteTextView
-        implements TextView.OnEditorActionListener, ViewSpan.Layout {
-    //Logging
-    public static final String TAG = "TokenAutoComplete";
+abstract class TokenCompleteTextView<T> : AppCompatAutoCompleteTextView,
+    OnEditorActionListener, ViewSpan.Layout {
+    private var tokenizer: Tokenizer? = null
+    private var selectedObject: T? = null
+    private var listener: TokenListener<T>? = null
+    private var spanWatcher: TokenSpanWatcher? = null
+    private var textWatcher: TokenTextWatcher? = null
+    private var countSpan: CountSpan? = null
+    private var hiddenContent: SpannableStringBuilder? = null
+    private var lastLayout: Layout? = null
+    private var initialized = false
+    private var performBestGuess = true
+    private var savingState = false
+    private var shouldFocusNext = false
+    private var allowCollapse = true
+    private var internalEditInProgress = false
 
-    private Tokenizer tokenizer;
-    private T selectedObject;
-    private TokenListener<T> listener;
-    private TokenSpanWatcher spanWatcher;
-    private TokenTextWatcher textWatcher;
-    private CountSpan countSpan;
-    private @Nullable SpannableStringBuilder hiddenContent;
-    private Layout lastLayout = null;
-    private boolean initialized = false;
-    private boolean performBestGuess = true;
-    private boolean savingState = false;
-    private boolean shouldFocusNext = false;
-    private boolean allowCollapse = true;
-    private boolean internalEditInProgress = false;
+    private var tokenLimit = -1
 
-    private int tokenLimit = -1;
-
-    private transient String lastCompletionText = null;
+    @Transient
+    private var lastCompletionText: String? = null
 
     /**
      * Add the TextChangedListeners
      */
-    protected void addListeners() {
-        Editable text = getText();
+    protected fun addListeners() {
+        val text = text
         if (text != null) {
-            text.setSpan(spanWatcher, 0, text.length(), Spanned.SPAN_INCLUSIVE_INCLUSIVE);
-            addTextChangedListener(textWatcher);
+            text.setSpan(spanWatcher, 0, text.length, Spanned.SPAN_INCLUSIVE_INCLUSIVE)
+            addTextChangedListener(textWatcher)
         }
     }
 
     /**
      * Remove the TextChangedListeners
      */
-    protected void removeListeners() {
-        Editable text = getText();
+    protected fun removeListeners() {
+        val text = text
         if (text != null) {
-            TokenSpanWatcher[] spanWatchers = text.getSpans(0, text.length(), TokenSpanWatcher.class);
-            for (TokenSpanWatcher watcher : spanWatchers) {
-                text.removeSpan(watcher);
+            val spanWatchers = text.getSpans<TokenSpanWatcher>(
+                0, text.length,
+                TokenSpanWatcher::class.java
+            )
+            for (watcher in spanWatchers) {
+                text.removeSpan(watcher)
             }
-            removeTextChangedListener(textWatcher);
+            removeTextChangedListener(textWatcher)
         }
     }
 
     /**
      * Initialise the variables and various listeners
      */
-    private void init() {
-        if (initialized) return;
+    private fun init() {
+        if (initialized) return
 
         // Initialise variables
-        setTokenizer(new CharacterTokenizer(Arrays.asList(',', ';'), ","));
-        Editable text = getText();
-        assert null != text;
-        spanWatcher = new TokenSpanWatcher();
-        textWatcher = new TokenTextWatcher();
-        hiddenContent = null;
-        countSpan = new CountSpan();
+        setTokenizer(CharacterTokenizer(mutableListOf(',', ';'), ","))
+        val text = checkNotNull(text)
+        spanWatcher = TokenSpanWatcher()
+        textWatcher = TokenTextWatcher()
+        hiddenContent = null
+        countSpan = CountSpan()
 
         // Initialise TextChangedListeners
-        addListeners();
+        addListeners()
 
-        setTextIsSelectable(false);
-        setLongClickable(false);
+        setTextIsSelectable(false)
+        isLongClickable = false
 
         //In theory, get the soft keyboard to not supply suggestions. very unreliable
-        setInputType(getInputType() |
-                InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS |
-                InputType.TYPE_TEXT_FLAG_AUTO_COMPLETE);
-        setHorizontallyScrolling(false);
+        inputType = inputType or
+            InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS or
+            InputType.TYPE_TEXT_FLAG_AUTO_COMPLETE
+        setHorizontallyScrolling(false)
 
         // Listen to IME action keys
-        setOnEditorActionListener(this);
+        setOnEditorActionListener(this)
 
         // Initialise the text filter (listens for the split chars)
-        setFilters(new InputFilter[]{new InputFilter() {
-            @Override
-            public CharSequence filter(CharSequence source, int start, int end,
-                                       Spanned dest, int destinationStart, int destinationEnd) {
+        filters = arrayOf<InputFilter>(object : InputFilter {
+            override fun filter(
+                source: CharSequence, start: Int, end: Int,
+                dest: Spanned, destinationStart: Int, destinationEnd: Int
+            ): CharSequence? {
                 if (internalEditInProgress) {
-                    return null;
+                    return null
                 }
 
                 // Token limit check
-                if (tokenLimit != -1 && getObjects().size() == tokenLimit) {
-                    return "";
+                if (tokenLimit != -1 && objects.size == tokenLimit) {
+                    return ""
                 }
 
                 //Detect split characters, remove them and complete the current token instead
                 // We only want to handle the case where the user inputs a single split character here
-                if (source.length() == 1 && tokenizer.containsTokenTerminator(source)) {
-                    performCompletion();
-                    return "";
+                if (source.length == 1 && tokenizer!!.containsTokenTerminator(source)) {
+                    performCompletion()
+                    return ""
                 }
 
-                return null;
+                return null
             }
-        }});
+        })
 
-        initialized = true;
+        initialized = true
     }
 
-    public TokenCompleteTextView(Context context) {
-        super(context);
-        init();
+    constructor(context: Context) : super(context) {
+        init()
     }
 
-    public TokenCompleteTextView(Context context, AttributeSet attrs) {
-        super(context, attrs);
-        init();
+    constructor(context: Context, attrs: AttributeSet?) : super(context, attrs) {
+        init()
     }
 
-    public TokenCompleteTextView(Context context, AttributeSet attrs, int defStyle) {
-        super(context, attrs, defStyle);
-        init();
+    constructor(context: Context, attrs: AttributeSet?, defStyle: Int) : super(context, attrs, defStyle) {
+        init()
     }
 
-    @Override
-    protected void performFiltering(CharSequence text, int keyCode) {
-        Filter filter = getFilter();
-        if (filter != null) {
-            filter.filter(currentCompletionText(), this);
-        }
+    override fun performFiltering(text: CharSequence, keyCode: Int) {
+        val filter = filter
+        filter?.filter(currentCompletionText(), this)
     }
 
-    public void setTokenizer(Tokenizer t) {
-        tokenizer = t;
+    fun setTokenizer(t: Tokenizer?) {
+        tokenizer = t
     }
 
     /**
@@ -190,8 +180,8 @@ public abstract class TokenCompleteTextView<T> extends AppCompatAutoCompleteText
      *
      * @param l The TokenListener
      */
-    public void setTokenListener(TokenListener<T> l) {
-        listener = l;
+    fun setTokenListener(l: TokenListener<T>?) {
+        listener = l
     }
 
     /**
@@ -199,8 +189,8 @@ public abstract class TokenCompleteTextView<T> extends AppCompatAutoCompleteText
      * @param token the token to check
      * @return true if the token should not be added, false if it's ok to add it.
      */
-    public boolean shouldIgnoreToken(@SuppressWarnings("unused") T token) {
-        return false;
+    open fun shouldIgnoreToken(@Suppress("unused") token: T): Boolean {
+        return false
     }
 
     /**
@@ -208,39 +198,39 @@ public abstract class TokenCompleteTextView<T> extends AppCompatAutoCompleteText
      * @param token the token to check
      * @return false if the token should not be removed, true if it's ok to remove it.
      */
-    public boolean isTokenRemovable(@SuppressWarnings("unused") T token) {
-        return true;
+    fun isTokenRemovable(@Suppress("unused") token: T): Boolean {
+        return true
     }
 
-    /**
-     * Get the list of Tokens
-     *
-     * @return List of tokens
-     */
-    public List<T> getObjects() {
-        ArrayList<T>objects = new ArrayList<>();
-        Editable text = getText();
-        if (hiddenContent != null) {
-            text = hiddenContent;
+    val objects: List<T>
+        /**
+         * Get the list of Tokens
+         *
+         * @return List of tokens
+         */
+        get() {
+            val objects = ArrayList<T>()
+            var text = text
+            if (hiddenContent != null) {
+                text = hiddenContent
+            }
+            for (span in text.getSpans(0, text.length, TokenImageSpan::class.java)) {
+                objects.add(span.token as T)
+            }
+            return objects
         }
-        for (TokenImageSpan span: text.getSpans(0, text.length(), TokenImageSpan.class)) {
-            objects.add(span.getToken());
-        }
-        return objects;
-    }
 
-    /**
-     * Get the content entered in the text field, including hidden text when ellipsized
-     *
-     * @return CharSequence of the entered content
-     */
-    public CharSequence getContentText() {
-        if (hiddenContent != null) {
-            return hiddenContent;
+    val contentText: CharSequence
+        /**
+         * Get the content entered in the text field, including hidden text when ellipsized
+         *
+         * @return CharSequence of the entered content
+         */
+        get() = if (hiddenContent != null) {
+            hiddenContent
         } else {
-            return getText();
+            text
         }
-    }
 
     /**
      * Set whether we try to guess an entry from the autocomplete spinner or just use the
@@ -248,8 +238,8 @@ public abstract class TokenCompleteTextView<T> extends AppCompatAutoCompleteText
      *
      * @param guess true to enable guessing
      */
-    public void performBestGuess(boolean guess) {
-        performBestGuess = guess;
+    fun performBestGuess(guess: Boolean) {
+        performBestGuess = guess
     }
 
     /**
@@ -257,8 +247,8 @@ public abstract class TokenCompleteTextView<T> extends AppCompatAutoCompleteText
      *
      * @param allowCollapse true if it should collapse
      */
-    public void allowCollapse(boolean allowCollapse) {
-        this.allowCollapse = allowCollapse;
+    fun allowCollapse(allowCollapse: Boolean) {
+        this.allowCollapse = allowCollapse
     }
 
     /**
@@ -266,9 +256,9 @@ public abstract class TokenCompleteTextView<T> extends AppCompatAutoCompleteText
      *
      * @param tokenLimit The number of tokens permitted. -1 value disables limit.
      */
-    @SuppressWarnings("unused")
-    public void setTokenLimit(int tokenLimit) {
-        this.tokenLimit = tokenLimit;
+    @Suppress("unused")
+    fun setTokenLimit(tokenLimit: Int) {
+        this.tokenLimit = tokenLimit
     }
 
     /**
@@ -277,7 +267,7 @@ public abstract class TokenCompleteTextView<T> extends AppCompatAutoCompleteText
      * @param object the object selected by the user from the list
      * @return a view to display a token in the text field for the object
      */
-    abstract protected View getViewForObject(T object);
+    protected abstract fun getViewForObject(`object`: T): View
 
     /**
      * Provides a default completion when the user hits , and there is no item in the completion
@@ -286,205 +276,206 @@ public abstract class TokenCompleteTextView<T> extends AppCompatAutoCompleteText
      * @param completionText the current text we are completing against
      * @return a best guess for what the user meant to complete or null if you don't want a guess
      */
-    abstract protected T defaultObject(String completionText);
+    protected abstract fun defaultObject(completionText: String?): T
 
-    /**
-     * Correctly build accessibility string for token contents
-     *
-     * This seems to be a hidden API, but there doesn't seem to be another reasonable way
-     * @return custom string for accessibility
-     */
-    @SuppressWarnings("unused")
-    public CharSequence getTextForAccessibility() {
-        if (getObjects().size() == 0) {
-            return getText();
-        }
+    @get:Suppress("unused")
+    val textForAccessibility: CharSequence
+        /**
+         * Correctly build accessibility string for token contents
+         *
+         * This seems to be a hidden API, but there doesn't seem to be another reasonable way
+         * @return custom string for accessibility
+         */
+        get() {
+            if (objects.size == 0) {
+                return text
+            }
 
-        SpannableStringBuilder description = new SpannableStringBuilder();
-        Editable text = getText();
-        int selectionStart = -1;
-        int selectionEnd = -1;
-        int i;
-        //Need to take the existing tet buffer and
-        // - replace all tokens with a decent string representation of the object
-        // - set the selection span to the corresponding location in the new CharSequence
-        for (i = 0; i < text.length(); ++i) {
-            //See if this is where we should start the selection
-            int origSelectionStart = Selection.getSelectionStart(text);
+            var description = SpannableStringBuilder()
+            val text = text
+            var selectionStart = -1
+            var selectionEnd = -1
+            var i: Int
+            //Need to take the existing tet buffer and
+            // - replace all tokens with a decent string representation of the object
+            // - set the selection span to the corresponding location in the new CharSequence
+            i = 0
+            while (i < text.length) {
+                //See if this is where we should start the selection
+                val origSelectionStart = Selection.getSelectionStart(text)
+                if (i == origSelectionStart) {
+                    selectionStart = description.length
+                }
+                val origSelectionEnd = Selection.getSelectionEnd(text)
+                if (i == origSelectionEnd) {
+                    selectionEnd = description.length
+                }
+
+                //Replace token spans
+                val tokens =
+                    text.getSpans(i, i, TokenImageSpan::class.java)
+                if (tokens.size > 0) {
+                    val token = tokens[0]
+                    description = description.append(tokenizer!!.wrapTokenValue(token.token.toString()))
+                    i = text.getSpanEnd(token)
+                    ++i
+                    continue
+                }
+
+                description = description.append(text.subSequence(i, i + 1))
+                ++i
+            }
+
+            val origSelectionStart = Selection.getSelectionStart(text)
             if (i == origSelectionStart) {
-                selectionStart = description.length();
+                selectionStart = description.length
             }
-            int origSelectionEnd = Selection.getSelectionEnd(text);
+            val origSelectionEnd = Selection.getSelectionEnd(text)
             if (i == origSelectionEnd) {
-                selectionEnd = description.length();
+                selectionEnd = description.length
             }
 
-            //Replace token spans
-            TokenImageSpan[] tokens = text.getSpans(i, i, TokenImageSpan.class);
-            if (tokens.length > 0) {
-                TokenImageSpan token = tokens[0];
-                description = description.append(tokenizer.wrapTokenValue(token.getToken().toString()));
-                i = text.getSpanEnd(token);
-                continue;
+            if (selectionStart >= 0 && selectionEnd >= 0) {
+                Selection.setSelection(description, selectionStart, selectionEnd)
             }
 
-            description = description.append(text.subSequence(i, i + 1));
+            return description
         }
-
-        int origSelectionStart = Selection.getSelectionStart(text);
-        if (i == origSelectionStart) {
-            selectionStart = description.length();
-        }
-        int origSelectionEnd = Selection.getSelectionEnd(text);
-        if (i == origSelectionEnd) {
-            selectionEnd = description.length();
-        }
-
-        if (selectionStart >= 0 && selectionEnd >= 0) {
-            Selection.setSelection(description, selectionStart, selectionEnd);
-        }
-
-        return description;
-    }
 
     /**
      * Clear the completion text only.
      */
-    @SuppressWarnings("unused")
-    public void clearCompletionText() {
+    @Suppress("unused")
+    fun clearCompletionText() {
         //Respect currentCompletionText in case hint is visible or if other checks are added.
-        if (currentCompletionText().length() == 0){
-            return;
+        if (currentCompletionText().length == 0) {
+            return
         }
 
-        Range currentRange = getCurrentCandidateTokenRange();
-        internalEditInProgress = true;
-        getText().delete(currentRange.start, currentRange.end);
-        internalEditInProgress = false;
+        val currentRange = currentCandidateTokenRange
+        internalEditInProgress = true
+        text.delete(currentRange.start, currentRange.end)
+        internalEditInProgress = false
     }
 
-    @Override
-    public void onInitializeAccessibilityEvent(AccessibilityEvent event) {
-        super.onInitializeAccessibilityEvent(event);
+    override fun onInitializeAccessibilityEvent(event: AccessibilityEvent) {
+        super.onInitializeAccessibilityEvent(event)
 
-        if (event.getEventType() == AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED) {
-            CharSequence text = getTextForAccessibility();
-            event.setFromIndex(Selection.getSelectionStart(text));
-            event.setToIndex(Selection.getSelectionEnd(text));
-            event.setItemCount(text.length());
+        if (event.eventType == AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED) {
+            val text = textForAccessibility
+            event.fromIndex = Selection.getSelectionStart(text)
+            event.toIndex = Selection.getSelectionEnd(text)
+            event.itemCount = text.length
         }
     }
 
-    private Range getCurrentCandidateTokenRange() {
-        Editable editable = getText();
-        int cursorEndPosition = getSelectionEnd();
-        int candidateStringStart = 0;
-        int candidateStringEnd = editable.length();
+    private val currentCandidateTokenRange: Range
+        get() {
+            val editable = text
+            val cursorEndPosition = selectionEnd
+            var candidateStringStart = 0
+            var candidateStringEnd = editable.length
 
-        //We want to find the largest string that contains the selection end that is not already tokenized
-        TokenImageSpan[] spans = editable.getSpans(0, editable.length(), TokenImageSpan.class);
-        for (TokenImageSpan span : spans) {
-            int spanEnd = editable.getSpanEnd(span);
-            if (candidateStringStart < spanEnd && cursorEndPosition >= spanEnd) {
-                candidateStringStart = spanEnd;
+            //We want to find the largest string that contains the selection end that is not already tokenized
+            val spans =
+                editable.getSpans(0, editable.length, TokenImageSpan::class.java)
+            for (span in spans) {
+                val spanEnd = editable.getSpanEnd(span)
+                if (candidateStringStart < spanEnd && cursorEndPosition >= spanEnd) {
+                    candidateStringStart = spanEnd
+                }
+                val spanStart = editable.getSpanStart(span)
+                if (candidateStringEnd > spanStart && cursorEndPosition <= spanEnd) {
+                    candidateStringEnd = spanStart
+                }
             }
-            int spanStart = editable.getSpanStart(span);
-            if (candidateStringEnd > spanStart && cursorEndPosition <= spanEnd) {
-                candidateStringEnd = spanStart;
+            if (candidateStringEnd < candidateStringStart) {
+                return Range(cursorEndPosition, cursorEndPosition)
             }
+            return Range(candidateStringStart, candidateStringEnd)
         }
-        if (candidateStringEnd < candidateStringStart) {
-            return new Range(cursorEndPosition, cursorEndPosition);
-        }
-        return new Range(candidateStringStart, candidateStringEnd);
-    }
 
     /**
      * Override if you need custom logic to provide a sting representation of a token
      * @param token the token to convert
-     * @return the string representation of the token. Defaults to {@link Object#toString()}
+     * @return the string representation of the token. Defaults to [Object.toString]
      */
-    protected CharSequence tokenToString(T token) {
-        return token.toString();
+    protected fun tokenToString(token: T): CharSequence {
+        return token.toString()
     }
 
-    protected String currentCompletionText() {
-        Editable editable = getText();
-        Range currentRange = getCurrentCandidateTokenRange();
+    protected fun currentCompletionText(): String {
+        val editable = text
+        val currentRange = currentCandidateTokenRange
 
-        String result = TextUtils.substring(editable, currentRange.start, currentRange.end);
-        Log.d(TAG, "Current completion text: " + result);
-        return result;
+        val result = TextUtils.substring(editable, currentRange.start, currentRange.end)
+        Log.d(TAG, "Current completion text: $result")
+        return result
     }
 
-    protected float maxTextWidth() {
-        return getWidth() - getPaddingLeft() - getPaddingRight();
+    protected fun maxTextWidth(): Float {
+        return (width - paddingLeft - paddingRight).toFloat()
     }
 
-    @Override
-    public int getMaxViewSpanWidth() {
-        return (int)maxTextWidth();
+    override fun getMaxViewSpanWidth(): Int {
+        return maxTextWidth().toInt()
     }
 
-    public void redrawTokens() {
+    fun redrawTokens() {
         // There's no straight-forward way to convince the widget to redraw the text and spans. We trigger a redraw by
         // making an invisible change (either adding or removing a dummy span).
 
-        Editable text = getText();
-        if (text == null) return;
+        val text = text ?: return
 
-        int textLength = text.length();
-        DummySpan[] dummySpans = text.getSpans(0, textLength, DummySpan.class);
-        if (dummySpans.length > 0) {
-            text.removeSpan(DummySpan.INSTANCE);
+        val textLength = text.length
+        val dummySpans = text.getSpans(0, textLength, DummySpan::class.java)
+        if (dummySpans.size > 0) {
+            text.removeSpan(DummySpan.INSTANCE)
         } else {
-            text.setSpan(DummySpan.INSTANCE, 0, textLength, Spannable.SPAN_INCLUSIVE_INCLUSIVE);
+            text.setSpan(DummySpan.INSTANCE, 0, textLength, Spannable.SPAN_INCLUSIVE_INCLUSIVE)
         }
     }
 
-    @Override
-    public boolean enoughToFilter() {
+    override fun enoughToFilter(): Boolean {
         if (tokenizer == null) {
-            return false;
+            return false
         }
 
-        int cursorPosition = getSelectionEnd();
+        val cursorPosition = selectionEnd
 
         if (cursorPosition < 0) {
-            return false;
+            return false
         }
 
-        Range currentCandidateRange = getCurrentCandidateTokenRange();
+        val currentCandidateRange = currentCandidateTokenRange
 
         //Don't allow 0 length entries to filter
-        return currentCandidateRange.length() >= Math.max(getThreshold(), 1);
+        return currentCandidateRange.length() >= max(threshold.toDouble(), 1.0)
     }
 
-    @Override
-    public void performCompletion() {
-        if ((getAdapter() == null || getListSelection() == ListView.INVALID_POSITION) && enoughToFilter()) {
-            Object bestGuess;
-            if (getAdapter() != null && getAdapter().getCount() > 0 && performBestGuess) {
-                bestGuess = getAdapter().getItem(0);
+    override fun performCompletion() {
+        if ((adapter == null || listSelection == ListView.INVALID_POSITION) && enoughToFilter()) {
+            val bestGuess: Any
+            if (adapter != null && adapter.count > 0 && performBestGuess) {
+                bestGuess = adapter.getItem(0)
             } else {
-                bestGuess = defaultObject(currentCompletionText());
+                bestGuess = defaultObject(currentCompletionText())
             }
-            replaceText(convertSelectionToString(bestGuess));
+            replaceText(convertSelectionToString(bestGuess))
         } else {
-            super.performCompletion();
+            super.performCompletion()
         }
     }
 
-    @Override
-    public InputConnection onCreateInputConnection(@NonNull EditorInfo outAttrs) {
-        InputConnection superConn = super.onCreateInputConnection(outAttrs);
+    override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection? {
+        val superConn = super.onCreateInputConnection(outAttrs)
         if (superConn != null) {
-            TokenInputConnection conn = new TokenInputConnection(superConn, true);
-            outAttrs.imeOptions &= ~EditorInfo.IME_FLAG_NO_ENTER_ACTION;
-            outAttrs.imeOptions |= EditorInfo.IME_FLAG_NO_EXTRACT_UI;
-            return conn;
+            val conn = TokenInputConnection(superConn, true)
+            outAttrs.imeOptions = outAttrs.imeOptions and EditorInfo.IME_FLAG_NO_ENTER_ACTION.inv()
+            outAttrs.imeOptions = outAttrs.imeOptions or EditorInfo.IME_FLAG_NO_EXTRACT_UI
+            return conn
         } else {
-            return null;
+            return null
         }
     }
 
@@ -492,111 +483,95 @@ public abstract class TokenCompleteTextView<T> extends AppCompatAutoCompleteText
      * Create a token and hide the keyboard when the user sends the DONE IME action
      * Use IME_NEXT if you want to create a token and go to the next field
      */
-    private void handleDone() {
+    private fun handleDone() {
         // Attempt to complete the current token token
-        performCompletion();
+        performCompletion()
 
         // Hide the keyboard
-        InputMethodManager imm = (InputMethodManager) getContext().getSystemService(
-                Context.INPUT_METHOD_SERVICE);
-        if (imm != null) {
-            imm.hideSoftInputFromWindow(getWindowToken(), 0);
-        }
+        val imm = context.getSystemService(
+            Context.INPUT_METHOD_SERVICE
+        ) as InputMethodManager
+        imm?.hideSoftInputFromWindow(windowToken, 0)
     }
 
-    @Override
-    public boolean onKeyUp(int keyCode, @NonNull KeyEvent event) {
-        boolean handled = super.onKeyUp(keyCode, event);
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+        val handled = super.onKeyUp(keyCode, event)
         if (shouldFocusNext) {
-            shouldFocusNext = false;
-            handleDone();
+            shouldFocusNext = false
+            handleDone()
         }
-        return handled;
+        return handled
     }
 
-    @Override
-    public boolean onKeyDown(int keyCode, @NonNull KeyEvent event) {
-        boolean handled = false;
-        switch (keyCode) {
-            case KeyEvent.KEYCODE_TAB:
-            case KeyEvent.KEYCODE_ENTER:
-            case KeyEvent.KEYCODE_DPAD_CENTER:
-                if (event.hasNoModifiers()) {
-                    shouldFocusNext = true;
-                    handled = true;
-                }
-                break;
-            case KeyEvent.KEYCODE_DEL:
-                handled = !canDeleteSelection(1);
-                break;
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        var handled = false
+        when (keyCode) {
+            KeyEvent.KEYCODE_TAB, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_DPAD_CENTER -> if (event.hasNoModifiers()) {
+                shouldFocusNext = true
+                handled = true
+            }
+
+            KeyEvent.KEYCODE_DEL -> handled = !canDeleteSelection(1)
         }
 
-        return handled || super.onKeyDown(keyCode, event);
+        return handled || super.onKeyDown(keyCode, event)
     }
 
-    @Override
-    public boolean onEditorAction(TextView view, int action, KeyEvent keyEvent) {
+    override fun onEditorAction(view: TextView, action: Int, keyEvent: KeyEvent): Boolean {
         if (action == EditorInfo.IME_ACTION_DONE) {
-            handleDone();
-            return true;
+            handleDone()
+            return true
         }
-        return false;
+        return false
     }
 
-    @Override
-    public boolean onTouchEvent(@NonNull MotionEvent event) {
-        int action = event.getActionMasked();
-        Editable text = getText();
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        val action = event.actionMasked
+        val text = text
 
-        boolean handled = super.onTouchEvent(event);
+        var handled = super.onTouchEvent(event)
 
-        if (isFocused() && text != null && lastLayout != null && action == MotionEvent.ACTION_UP) {
-
-            int offset = getOffsetForPosition(event.getX(), event.getY());
+        if (isFocused && text != null && lastLayout != null && action == MotionEvent.ACTION_UP) {
+            val offset = getOffsetForPosition(event.x, event.y)
 
             if (offset != -1) {
-                TokenImageSpan[] links = text.getSpans(offset, offset, TokenImageSpan.class);
+                val links = text.getSpans(offset, offset, TokenImageSpan::class.java)
 
-                if (links.length > 0) {
-                    links[0].onClick();
-                    handled = true;
+                if (links.size > 0) {
+                    links[0].onClick()
+                    handled = true
                 }
             }
         }
 
-        return handled;
-
+        return handled
     }
 
-    @Override
-    protected void onSelectionChanged(int selStart, int selEnd) {
+    override fun onSelectionChanged(selStart: Int, selEnd: Int) {
         //Never let users select text
-        selEnd = selStart;
+        var selEnd = selEnd
+        selEnd = selStart
 
-        Editable text = getText();
+        val text = text
         if (text != null) {
             //Make sure if we are in a span, we select the spot 1 space after the span end
-            TokenImageSpan[] spans = text.getSpans(selStart, selEnd, TokenImageSpan.class);
-            for (TokenImageSpan span : spans) {
-                int spanEnd = text.getSpanEnd(span);
+            val spans = text.getSpans(selStart, selEnd, TokenImageSpan::class.java)
+            for (span in spans) {
+                val spanEnd = text.getSpanEnd(span)
                 if (selStart <= spanEnd && text.getSpanStart(span) < selStart) {
-                    if (spanEnd == text.length())
-                        setSelection(spanEnd);
-                    else
-                        setSelection(spanEnd + 1);
-                    return;
+                    if (spanEnd == text.length) setSelection(spanEnd)
+                    else setSelection(spanEnd + 1)
+                    return
                 }
             }
-
         }
 
-        super.onSelectionChanged(selStart, selEnd);
+        super.onSelectionChanged(selStart, selEnd)
     }
 
-    @Override
-    protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
-        super.onLayout(changed, left, top, right, bottom);
-        lastLayout = getLayout(); //Used for checking text positions
+    override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+        super.onLayout(changed, left, top, right, bottom)
+        lastLayout = layout //Used for checking text positions
     }
 
     /**
@@ -605,123 +580,129 @@ public abstract class TokenCompleteTextView<T> extends AppCompatAutoCompleteText
      *
      * @param hasFocus boolean indicating whether we have the focus or not.
      */
-    public void performCollapse(boolean hasFocus) {
-        internalEditInProgress = true;
-        if (!hasFocus  && getObjects().size() > 1) {
+    fun performCollapse(hasFocus: Boolean) {
+        internalEditInProgress = true
+        if (!hasFocus && objects.size > 1) {
             // Display +x thingy/ellipse if appropriate
-            final Editable text = getText();
+            val text = text
             if (text != null && hiddenContent == null && lastLayout != null) {
-
                 //Ellipsize copies spans, so we need to stop listening to span changes here
-                text.removeSpan(spanWatcher);
 
-                Spanned ellipsized = SpanUtils.ellipsizeWithSpans(countSpan, getObjects().size(),
-                        lastLayout.getPaint(), text, maxTextWidth());
+                text.removeSpan(spanWatcher)
+
+                val ellipsized = SpanUtils.ellipsizeWithSpans(
+                    countSpan, objects.size,
+                    lastLayout!!.paint, text, maxTextWidth()
+                )
 
                 if (ellipsized != null) {
-                    hiddenContent = new SpannableStringBuilder(text);
-                    setText(ellipsized);
-                    TextUtils.copySpansFrom(ellipsized, 0, ellipsized.length(),
-                            TokenImageSpan.class, getText(), 0);
-                    TextUtils.copySpansFrom(text, 0, hiddenContent.length(),
-                            TokenImageSpan.class, hiddenContent, 0);
-                    hiddenContent.setSpan(spanWatcher, 0, hiddenContent.length(), Spanned.SPAN_INCLUSIVE_INCLUSIVE);
+                    hiddenContent = SpannableStringBuilder(text)
+                    setText(ellipsized)
+                    TextUtils.copySpansFrom(
+                        ellipsized, 0, ellipsized.length,
+                        TokenImageSpan::class.java, getText(), 0
+                    )
+                    TextUtils.copySpansFrom(
+                        text, 0, hiddenContent!!.length,
+                        TokenImageSpan::class.java, hiddenContent, 0
+                    )
+                    hiddenContent!!.setSpan(spanWatcher, 0, hiddenContent!!.length, Spanned.SPAN_INCLUSIVE_INCLUSIVE)
                 } else {
-                    getText().setSpan(spanWatcher, 0, getText().length(), Spanned.SPAN_INCLUSIVE_INCLUSIVE);
+                    getText().setSpan(spanWatcher, 0, getText().length, Spanned.SPAN_INCLUSIVE_INCLUSIVE)
                 }
             }
         } else {
             if (hiddenContent != null) {
-                setText(hiddenContent);
-                TextUtils.copySpansFrom(hiddenContent, 0, hiddenContent.length(),
-                        TokenImageSpan.class, getText(), 0);
-                hiddenContent = null;
+                text = hiddenContent
+                TextUtils.copySpansFrom(
+                    hiddenContent, 0, hiddenContent!!.length,
+                    TokenImageSpan::class.java, text, 0
+                )
+                hiddenContent = null
 
-                post(new Runnable() {
-                    @Override
-                    public void run() {
-                        setSelection(getText().length());
-                    }
-                });
+                post { setSelection(text.length) }
 
-                TokenSpanWatcher[] watchers = getText().getSpans(0, getText().length(), TokenSpanWatcher.class);
-                if (watchers.length == 0) {
+                val watchers = text.getSpans<TokenSpanWatcher>(
+                    0, text.length,
+                    TokenSpanWatcher::class.java
+                )
+                if (watchers.size == 0) {
                     //Span watchers can get removed in setText
-                    getText().setSpan(spanWatcher, 0, getText().length(), Spanned.SPAN_INCLUSIVE_INCLUSIVE);
+                    text.setSpan(spanWatcher, 0, text.length, Spanned.SPAN_INCLUSIVE_INCLUSIVE)
                 }
             }
         }
-        internalEditInProgress = false;
+        internalEditInProgress = false
     }
 
-    @Override
-    public void onFocusChanged(boolean hasFocus, int direction, Rect previous) {
-        super.onFocusChanged(hasFocus, direction, previous);
+    public override fun onFocusChanged(hasFocus: Boolean, direction: Int, previous: Rect?) {
+        super.onFocusChanged(hasFocus, direction, previous)
 
         // Collapse the view to a single line
-        if (allowCollapse) performCollapse(hasFocus);
+        if (allowCollapse) performCollapse(hasFocus)
     }
 
-    @SuppressWarnings("unchecked cast")
-    @Override
-    protected CharSequence convertSelectionToString(Object object) {
-        selectedObject = (T) object;
-        return "";
+    override fun convertSelectionToString(`object`: Any): CharSequence {
+        selectedObject = `object` as T
+        return ""
     }
 
-    protected TokenImageSpan buildSpanForObject(T obj) {
+    protected open fun buildSpanForObject(obj: T?): TokenImageSpan? {
         if (obj == null) {
-            return null;
+            return null
         }
-        View tokenView = getViewForObject(obj);
-        return new TokenImageSpan(tokenView, obj);
+        val tokenView = getViewForObject(obj)
+        return TokenImageSpan(tokenView, obj)
     }
 
-    @Override
-    protected void replaceText(CharSequence ignore) {
-        clearComposingText();
+    override fun replaceText(ignore: CharSequence) {
+        clearComposingText()
 
         // Don't build a token for an empty String
-        if (selectedObject == null || selectedObject.toString().equals("")) return;
+        if (selectedObject == null || selectedObject.toString() == "") return
 
-        TokenImageSpan tokenSpan = buildSpanForObject(selectedObject);
+        val tokenSpan = buildSpanForObject(selectedObject)
 
-        Editable editable = getText();
-        Range candidateRange = getCurrentCandidateTokenRange();
+        val editable = text
+        val candidateRange = currentCandidateTokenRange
 
-        String original = TextUtils.substring(editable, candidateRange.start, candidateRange.end);
+        val original = TextUtils.substring(editable, candidateRange.start, candidateRange.end)
 
         //Keep track of  replacements for a bug workaround
-        if (original.length() > 0) {
-            lastCompletionText = original;
+        if (original.length > 0) {
+            lastCompletionText = original
         }
 
         if (editable != null) {
-            internalEditInProgress = true;
+            internalEditInProgress = true
             if (tokenSpan == null) {
-                editable.replace(candidateRange.start, candidateRange.end, "");
-            } else if (shouldIgnoreToken(tokenSpan.getToken())) {
-                editable.replace(candidateRange.start, candidateRange.end, "");
+                editable.replace(candidateRange.start, candidateRange.end, "")
+            } else if (shouldIgnoreToken(tokenSpan.token)) {
+                editable.replace(candidateRange.start, candidateRange.end, "")
                 if (listener != null) {
-                    listener.onTokenIgnored(tokenSpan.getToken());
+                    listener!!.onTokenIgnored(tokenSpan.token)
                 }
             } else {
-                SpannableStringBuilder ssb = new SpannableStringBuilder(tokenizer.wrapTokenValue(tokenToString(tokenSpan.token)));
-                editable.replace(candidateRange.start, candidateRange.end, ssb);
-                editable.setSpan(tokenSpan, candidateRange.start, candidateRange.start + ssb.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-                editable.insert(candidateRange.start + ssb.length(), " ");
+                val ssb = SpannableStringBuilder(tokenizer!!.wrapTokenValue(tokenToString(tokenSpan.token)))
+                editable.replace(candidateRange.start, candidateRange.end, ssb)
+                editable.setSpan(
+                    tokenSpan,
+                    candidateRange.start,
+                    candidateRange.start + ssb.length,
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+                editable.insert(candidateRange.start + ssb.length, " ")
             }
-            internalEditInProgress = false;
+            internalEditInProgress = false
         }
     }
 
-    @Override
-    public boolean extractText(@NonNull ExtractedTextRequest request, @NonNull ExtractedText outText) {
+    override fun extractText(request: ExtractedTextRequest, outText: ExtractedText): Boolean {
         try {
-            return super.extractText(request, outText);
-        } catch (IndexOutOfBoundsException ex) {
-            Log.d(TAG, "extractText hit IndexOutOfBoundsException. This may be normal.", ex);
-            return false;
+            return super.extractText(request, outText)
+        } catch (ex: IndexOutOfBoundsException) {
+            Log.d(TAG, "extractText hit IndexOutOfBoundsException. This may be normal.", ex)
+            return false
         }
     }
 
@@ -731,17 +712,17 @@ public abstract class TokenCompleteTextView<T> extends AppCompatAutoCompleteText
      * @param object the object to add to the displayed tokens
      */
     @UiThread
-    public void addObjectSync(T object) {
-        if (object == null) return;
-        if (shouldIgnoreToken(object)) {
+    fun addObjectSync(`object`: T?) {
+        if (`object` == null) return
+        if (shouldIgnoreToken(`object`)) {
             if (listener != null) {
-                listener.onTokenIgnored(object);
+                listener!!.onTokenIgnored(`object`)
             }
-            return;
+            return
         }
-        if (tokenLimit != -1 && getObjects().size() == tokenLimit) return;
-        insertSpan(buildSpanForObject(object));
-        if (getText() != null && isFocused()) setSelection(getText().length());
+        if (tokenLimit != -1 && objects.size == tokenLimit) return
+        insertSpan(buildSpanForObject(`object`)!!)
+        if (text != null && isFocused) setSelection(text.length)
     }
 
     /**
@@ -749,101 +730,90 @@ public abstract class TokenCompleteTextView<T> extends AppCompatAutoCompleteText
      *
      * @param object the object to add to the displayed tokens
      */
-    public void addObjectAsync(final T object) {
-        post(new Runnable() {
-            @Override
-            public void run() {
-                addObjectSync(object);
-            }
-        });
+    fun addObjectAsync(`object`: T) {
+        post { addObjectSync(`object`) }
     }
 
     /**
      * Remove an object from the token list. Will remove duplicates if present or do nothing if no
-     * object is present in the view. Uses {@link Object#equals(Object)} to find objects. May only
+     * object is present in the view. Uses [Object.equals] to find objects. May only
      * be called from the main thread
      *
      * @param object object to remove, may be null or not in the view
      */
     @UiThread
-    public void removeObjectSync(T object) {
+    fun removeObjectSync(`object`: T) {
         //To make sure all the appropriate callbacks happen, we just want to piggyback on the
         //existing code that handles deleting spans when the text changes
-        ArrayList<Editable>texts = new ArrayList<>();
+        val texts = ArrayList<Editable>()
         //If there is hidden content, it's important that we update it first
         if (hiddenContent != null) {
-            texts.add(hiddenContent);
+            texts.add(hiddenContent!!)
         }
-        if (getText() != null) {
-            texts.add(getText());
+        if (text != null) {
+            texts.add(text)
         }
 
         // If the object is currently visible, remove it
-        for (Editable text: texts) {
-            TokenImageSpan[] spans = text.getSpans(0, text.length(), TokenImageSpan.class);
-            for (TokenImageSpan span : spans) {
-                if (span.getToken().equals(object)) {
-                    removeSpan(text, span);
+        for (text in texts) {
+            val spans = text.getSpans(0, text.length, TokenImageSpan::class.java)
+            for (span in spans) {
+                if (span.token == `object`) {
+                    removeSpan(text, span)
                 }
             }
         }
 
-        updateCountSpan();
+        updateCountSpan()
     }
 
     /**
      * Remove an object from the token list. Will remove duplicates if present or do nothing if no
-     * object is present in the view. Uses {@link Object#equals(Object)} to find objects. Object
+     * object is present in the view. Uses [Object.equals] to find objects. Object
      * will be added on the main thread
      *
      * @param object object to remove, may be null or not in the view
      */
-    public void removeObjectAsync(final T object) {
-        post(new Runnable() {
-            @Override
-            public void run() {
-                removeObjectSync(object);
-            }
-        });
+    fun removeObjectAsync(`object`: T) {
+        post { removeObjectSync(`object`) }
     }
 
     /**
      * Remove all objects from the token list. Objects will be removed on the main thread.
      */
-    public void clearAsync() {
-        post(new Runnable() {
-            @Override
-            public void run() {
-                for (T object: getObjects()) {
-                    removeObjectSync(object);
+    fun clearAsync() {
+        post(object : Runnable {
+            override fun run() {
+                for (`object` in this.objects) {
+                    removeObjectSync(`object`)
                 }
             }
-        });
+        })
     }
 
     /**
      * Set the count span the current number of hidden objects
      */
-    private void updateCountSpan() {
-        Editable text = getText();
+    private fun updateCountSpan() {
+        val text = text
 
-        int visibleCount = getText().getSpans(0, getText().length(), TokenImageSpan.class).length;
-        countSpan.setCount(getObjects().size() - visibleCount);
+        val visibleCount = getText().getSpans<TokenImageSpan>(0, getText().length, TokenImageSpan::class.java).size
+        countSpan!!.setCount(objects.size - visibleCount)
 
-        SpannableStringBuilder spannedCountText = new SpannableStringBuilder(countSpan.getCountText());
-        spannedCountText.setSpan(countSpan, 0, spannedCountText.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        val spannedCountText = SpannableStringBuilder(countSpan!!.countText)
+        spannedCountText.setSpan(countSpan, 0, spannedCountText.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
 
-        internalEditInProgress = true;
-        int countStart = text.getSpanStart(countSpan);
+        internalEditInProgress = true
+        val countStart = text.getSpanStart(countSpan)
         if (countStart != -1) {
             //Span is in the text, replace existing text
             //This will also remove the span if the count is 0
-            text.replace(countStart, text.getSpanEnd(countSpan), spannedCountText);
+            text.replace(countStart, text.getSpanEnd(countSpan), spannedCountText)
         } else {
-            text.append(spannedCountText);
+            text.append(spannedCountText)
         }
 
-        internalEditInProgress = false;
+        internalEditInProgress = false
     }
 
     /**
@@ -852,19 +822,19 @@ public abstract class TokenCompleteTextView<T> extends AppCompatAutoCompleteText
      * @param text Editable to remove the span from
      * @param span TokenImageSpan to be removed
      */
-    private void removeSpan(Editable text, TokenImageSpan span) {
+    private fun removeSpan(text: Editable, span: TokenImageSpan) {
         //We usually add whitespace after a token, so let's try to remove it as well if it's present
-        int end = text.getSpanEnd(span);
-        if (end < text.length() && text.charAt(end) == ' ') {
-            end += 1;
+        var end = text.getSpanEnd(span)
+        if (end < text.length && text[end] == ' ') {
+            end += 1
         }
 
-        internalEditInProgress = true;
-        text.delete(text.getSpanStart(span), end);
-        internalEditInProgress = false;
+        internalEditInProgress = true
+        text.delete(text.getSpanStart(span), end)
+        internalEditInProgress = false
 
-        if (allowCollapse && !isFocused()) {
-            updateCountSpan();
+        if (allowCollapse && !isFocused) {
+            updateCountSpan()
         }
     }
 
@@ -873,212 +843,186 @@ public abstract class TokenCompleteTextView<T> extends AppCompatAutoCompleteText
      *
      * @param tokenSpan span to insert
      */
-    private void insertSpan(TokenImageSpan tokenSpan) {
-        CharSequence ssb = tokenizer.wrapTokenValue(tokenToString(tokenSpan.token));
+    private fun insertSpan(tokenSpan: TokenImageSpan) {
+        val ssb = tokenizer!!.wrapTokenValue(tokenToString(tokenSpan.token))
 
-        Editable editable = getText();
-        if (editable == null) return;
+        val editable = text ?: return
 
         // If we haven't hidden any objects yet, we can try adding it
         if (hiddenContent == null) {
-            internalEditInProgress = true;
-            int offset = editable.length();
+            internalEditInProgress = true
+            var offset = editable.length
 
-            Range currentRange = getCurrentCandidateTokenRange();
+            val currentRange = currentCandidateTokenRange
             if (currentRange.length() > 0) {
                 // The user has entered some text that has not yet been tokenized.
                 // Find the beginning of this text and insert the new token there.
-                offset = currentRange.start;
+                offset = currentRange.start
             }
 
-            editable.insert(offset, ssb);
-            editable.insert(offset  + ssb.length(), " ");
-            editable.setSpan(tokenSpan, offset, offset + ssb.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            internalEditInProgress = false;
+            editable.insert(offset, ssb)
+            editable.insert(offset + ssb.length, " ")
+            editable.setSpan(tokenSpan, offset, offset + ssb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            internalEditInProgress = false
         } else {
-            CharSequence tokenText = tokenizer.wrapTokenValue(tokenToString(tokenSpan.getToken()));
-            int start = hiddenContent.length();
-            hiddenContent.append(tokenText);
-            hiddenContent.append(" ");
-            hiddenContent.setSpan(tokenSpan, start, start + tokenText.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            updateCountSpan();
+            val tokenText = tokenizer!!.wrapTokenValue(tokenToString(tokenSpan.token))
+            val start = hiddenContent!!.length
+            hiddenContent!!.append(tokenText)
+            hiddenContent!!.append(" ")
+            hiddenContent!!.setSpan(tokenSpan, start, start + tokenText.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            updateCountSpan()
         }
     }
 
-    protected class TokenImageSpan extends ViewSpan implements NoCopySpan {
-        private T token;
+    inner class TokenImageSpan(d: View?, val token: T) : ViewSpan(d, this@TokenCompleteTextView),
+        NoCopySpan {
+        open fun onClick() {
+            val text = text ?: return
 
-        @SuppressWarnings("WeakerAccess")
-        public TokenImageSpan(View d, T token) {
-            super(d, TokenCompleteTextView.this);
-            this.token = token;
-        }
-
-        @SuppressWarnings("WeakerAccess")
-        public T getToken() {
-            return this.token;
-        }
-
-        @SuppressWarnings("WeakerAccess")
-        public void onClick() {
-            Editable text = getText();
-            if (text == null) return;
-
-            if (getSelectionStart() != text.getSpanEnd(this)) {
+            if (selectionStart != text.getSpanEnd(this)) {
                 //Make sure the selection is not in the middle of the span
-                setSelection(text.getSpanEnd(this));
+                setSelection(text.getSpanEnd(this))
             }
         }
     }
 
-    public interface TokenListener<T> {
-        void onTokenAdded(T token);
-        void onTokenRemoved(T token);
-        void onTokenIgnored(T token);
+    interface TokenListener<T> {
+        fun onTokenAdded(token: T)
+        fun onTokenRemoved(token: T)
+        fun onTokenIgnored(token: T)
     }
 
-    private class TokenSpanWatcher implements SpanWatcher {
-
-        @SuppressWarnings("unchecked cast")
-        @Override
-        public void onSpanAdded(Spannable text, Object what, int start, int end) {
-            if (what instanceof TokenCompleteTextView<?>.TokenImageSpan && !savingState) {
-                TokenImageSpan token = (TokenImageSpan) what;
-
+    class TokenSpanWatcher : SpanWatcher {
+        override fun onSpanAdded(text: Spannable, what: Any, start: Int, end: Int) {
+            if (what is TokenImageSpan && !savingState) {
                 // If we're not focused: collapse the view if necessary
-                if (!isFocused() && allowCollapse) performCollapse(false);
+                if (!isFocused && allowCollapse) performCollapse(false)
 
-                if (listener != null)
-                    listener.onTokenAdded(token.getToken());
+                if (listener != null) listener!!.onTokenAdded(what.token)
             }
         }
 
-        @SuppressWarnings("unchecked cast")
-        @Override
-        public void onSpanRemoved(Spannable text, Object what, int start, int end) {
-            if (what instanceof TokenCompleteTextView<?>.TokenImageSpan && !savingState) {
-                TokenImageSpan token = (TokenImageSpan) what;
-
-                if (listener != null)
-                    listener.onTokenRemoved(token.getToken());
+        override fun onSpanRemoved(text: Spannable, what: Any, start: Int, end: Int) {
+            if (what is TokenImageSpan && !savingState) {
+                if (listener != null) listener!!.onTokenRemoved(what.token)
             }
         }
 
-        @Override
-        public void onSpanChanged(Spannable text, Object what,
-                                  int oldStart, int oldEnd, int newStart, int newEnd) {
+        override fun onSpanChanged(
+            text: Spannable, what: Any,
+            oldStart: Int, oldEnd: Int, newStart: Int, newEnd: Int
+        ) {
         }
     }
 
-    private class TokenTextWatcher implements TextWatcher {
-        ArrayList<TokenImageSpan> spansToRemove = new ArrayList<>();
+    private inner class TokenTextWatcher : TextWatcher {
+        var spansToRemove: ArrayList<TokenImageSpan> = ArrayList()
 
-        @Override
-        public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+        override fun beforeTextChanged(s: CharSequence, start: Int, count: Int, after: Int) {
             // count > 0 means something will be deleted
-            if (count > 0 && getText() != null) {
-                Editable text = getText();
+            if (count > 0 && text != null) {
+                val text = text
 
-                int end = start + count;
+                val end = start + count
 
-                TokenImageSpan[] spans = text.getSpans(start, end, TokenImageSpan.class);
+                val spans = text.getSpans<TokenImageSpan>(start, end, TokenImageSpan::class.java)
 
                 //NOTE: I'm not completely sure this won't cause problems if we get stuck in a text changed loop
                 //but it appears to work fine. Spans will stop getting removed if this breaks.
-                ArrayList<TokenImageSpan> spansToRemove = new ArrayList<>();
-                for (TokenImageSpan token : spans) {
+                val spansToRemove = ArrayList<TokenImageSpan>()
+                for (token in spans) {
                     if (text.getSpanStart(token) < end && start < text.getSpanEnd(token)) {
-                        spansToRemove.add(token);
+                        spansToRemove.add(token)
                     }
                 }
-                this.spansToRemove = spansToRemove;
+                this.spansToRemove = spansToRemove
             }
         }
 
-        @Override
-        public void afterTextChanged(Editable text) {
-            ArrayList<TokenImageSpan> spansCopy = new ArrayList<>(spansToRemove);
-            spansToRemove.clear();
-            for (TokenImageSpan token : spansCopy) {
+        override fun afterTextChanged(text: Editable) {
+            val spansCopy = ArrayList(spansToRemove)
+            spansToRemove.clear()
+            for (token in spansCopy) {
                 //Only remove it if it's still present
                 if (text.getSpanStart(token) != -1 && text.getSpanEnd(token) != -1) {
-                    removeSpan(text, token);
+                    removeSpan(text, token)
                 }
-
             }
         }
 
-        @Override
-        public void onTextChanged(CharSequence s, int start, int before, int count) {
+        override fun onTextChanged(s: CharSequence, start: Int, before: Int, count: Int) {
         }
     }
 
-    protected List<Serializable> getSerializableObjects() {
-        List<Serializable> serializables = new ArrayList<>();
-        for (Object obj : getObjects()) {
-            if (obj instanceof Serializable) {
-                serializables.add((Serializable) obj);
-            } else {
-                Log.e(TAG, "Unable to save '" + obj + "'");
+    protected val serializableObjects: List<Serializable>
+        get() {
+            val serializables: MutableList<Serializable> =
+                ArrayList()
+            for (obj in objects) {
+                if (obj is Serializable) {
+                    serializables.add(obj as Serializable)
+                } else {
+                    Log.e(TAG, "Unable to save '$obj'")
+                }
             }
-        }
-        if (serializables.size() != getObjects().size()) {
-            String message = "You should make your objects Serializable or Parcelable or\n" +
-                    "override getSerializableObjects and convertSerializableArrayToObjectArray";
-            Log.e(TAG, message);
+            if (serializables.size != objects.size) {
+                val message = """
+                     You should make your objects Serializable or Parcelable or
+                     override getSerializableObjects and convertSerializableArrayToObjectArray
+                     """.trimIndent()
+                Log.e(TAG, message)
+            }
+
+            return serializables
         }
 
-        return serializables;
-    }
-
-    @SuppressWarnings("unchecked")
-    protected List<T> convertSerializableObjectsToTypedObjects(List s) {
-        return (List<T>) s;
+    protected fun convertSerializableObjectsToTypedObjects(s: List<*>?): List<T>? {
+        return s as List<T>?
     }
 
     //Used to determine if we can use the Parcelable interface
-    private Class reifyParameterizedTypeClass() {
+    private fun reifyParameterizedTypeClass(): Class<*> {
         //Borrowed from http://codyaray.com/2013/01/finding-generic-type-parameters-with-guava
 
         //Figure out what class of objects we have
-        Class<?> viewClass = getClass();
-        while (!viewClass.getSuperclass().equals(TokenCompleteTextView.class)) {
-            viewClass = viewClass.getSuperclass();
+
+        var viewClass: Class<*>? = javaClass
+        while (viewClass!!.superclass != TokenCompleteTextView::class.java) {
+            viewClass = viewClass.superclass
         }
 
         // This operation is safe. Because viewClass is a direct sub-class, getGenericSuperclass() will
         // always return the Type of this class. Because this class is parameterized, the cast is safe
-        ParameterizedType superclass = (ParameterizedType) viewClass.getGenericSuperclass();
-        Type type = superclass.getActualTypeArguments()[0];
-        return (Class)type;
+        val superclass = viewClass.genericSuperclass as ParameterizedType
+        val type = superclass.actualTypeArguments[0]
+        return type as Class<*>
     }
 
-    @Override
-    public Parcelable onSaveInstanceState() {
+    override fun onSaveInstanceState(): Parcelable? {
         //We don't want to save the listeners as part of the parent
         //onSaveInstanceState, so remove them first
-        removeListeners();
+        removeListeners()
 
         //Apparently, saving the parent state on 2.3 mutates the spannable
         //prevent this mutation from triggering add or removes of token objects ~mgod
-        savingState = true;
-        Parcelable superState = super.onSaveInstanceState();
-        savingState = false;
-        SavedState state = new SavedState(superState);
+        savingState = true
+        val superState = super.onSaveInstanceState()
+        savingState = false
+        val state = SavedState(superState)
 
-        state.allowCollapse = allowCollapse;
-        state.performBestGuess = performBestGuess;
-        Class parameterizedClass = reifyParameterizedTypeClass();
+        state.allowCollapse = allowCollapse
+        state.performBestGuess = performBestGuess
+        val parameterizedClass = reifyParameterizedTypeClass()
         //Our core array is Parcelable, so use that interface
-        if (Parcelable.class.isAssignableFrom(parameterizedClass)) {
-            state.parcelableClassName = parameterizedClass.getName();
-            state.baseObjects = getObjects();
+        if (Parcelable::class.java.isAssignableFrom(parameterizedClass)) {
+            state.parcelableClassName = parameterizedClass.name
+            state.baseObjects = objects
         } else {
             //Fallback on Serializable
-            state.parcelableClassName = SavedState.SERIALIZABLE_PLACEHOLDER;
-            state.baseObjects = getSerializableObjects();
+            state.parcelableClassName = SavedState.SERIALIZABLE_PLACEHOLDER
+            state.baseObjects = serializableObjects
         }
-        state.tokenizer = tokenizer;
+        state.tokenizer = tokenizer
 
         //So, when the screen is locked or some other system event pauses execution,
         //onSaveInstanceState gets called, but it won't restore state later because the
@@ -1086,130 +1030,117 @@ public abstract class TokenCompleteTextView<T> extends AppCompatAutoCompleteText
         //They should not be restored in onInstanceState if the app is actually killed
         //as we removed them before the parent saved instance state, so our adding them in
         //onRestoreInstanceState is good.
-        addListeners();
+        addListeners()
 
-        return state;
+        return state
     }
 
-    @SuppressWarnings("unchecked")
-    @Override
-    public void onRestoreInstanceState(Parcelable state) {
-        if (!(state instanceof SavedState)) {
-            super.onRestoreInstanceState(state);
-            return;
+    override fun onRestoreInstanceState(state: Parcelable) {
+        if (state !is SavedState) {
+            super.onRestoreInstanceState(state)
+            return
         }
 
-        SavedState ss = (SavedState) state;
-        super.onRestoreInstanceState(ss.getSuperState());
+        val ss = state
+        super.onRestoreInstanceState(ss.superState)
 
-        allowCollapse = ss.allowCollapse;
-        performBestGuess = ss.performBestGuess;
-        tokenizer = ss.tokenizer;
-        addListeners();
-
-        List<T> objects;
-        if (SavedState.SERIALIZABLE_PLACEHOLDER.equals(ss.parcelableClassName)) {
-            objects = convertSerializableObjectsToTypedObjects(ss.baseObjects);
+        allowCollapse = ss.allowCollapse
+        performBestGuess = ss.performBestGuess
+        tokenizer = ss.tokenizer
+        addListeners()
+        val objects = if (SavedState.SERIALIZABLE_PLACEHOLDER == ss.parcelableClassName) {
+            convertSerializableObjectsToTypedObjects(ss.baseObjects)
         } else {
-            objects = (List<T>)ss.baseObjects;
+            ss.baseObjects as List<T>?
         }
 
         //TODO: change this to keep object spans in the correct locations based on ranges.
-        for (T obj: objects) {
-            addObjectSync(obj);
+        for (obj in objects!!) {
+            addObjectSync(obj)
         }
 
         // Collapse the view if necessary
-        if (!isFocused() && allowCollapse) {
-            post(new Runnable() {
-                @Override
-                public void run() {
-                    //Resize the view and display the +x if appropriate
-                    performCollapse(isFocused());
-                }
-            });
+        if (!isFocused && allowCollapse) {
+            post { //Resize the view and display the +x if appropriate
+                performCollapse(isFocused)
+            }
         }
     }
 
     /**
      * Handle saving the token state
      */
-    private static class SavedState extends BaseSavedState {
-        static final String SERIALIZABLE_PLACEHOLDER = "Serializable";
+    private class SavedState : BaseSavedState {
+        var allowCollapse: Boolean = false
+        var performBestGuess: Boolean = false
+        var parcelableClassName: String? = null
+        var baseObjects: List<*>? = null
+        var tokenizerClassName: String? = null
+        var tokenizer: Tokenizer? = null
 
-        boolean allowCollapse;
-        boolean performBestGuess;
-        String parcelableClassName;
-        List<?> baseObjects;
-        String tokenizerClassName;
-        Tokenizer tokenizer;
-
-        @SuppressWarnings("unchecked")
-        SavedState(Parcel in) {
-            super(in);
-            allowCollapse = in.readInt() != 0;
-            performBestGuess = in.readInt() != 0;
-            parcelableClassName = in.readString();
-            if (SERIALIZABLE_PLACEHOLDER.equals(parcelableClassName)) {
-                baseObjects = (ArrayList)in.readSerializable();
+        constructor(`in`: Parcel) : super(`in`) {
+            allowCollapse = `in`.readInt() != 0
+            performBestGuess = `in`.readInt() != 0
+            parcelableClassName = `in`.readString()
+            if (SERIALIZABLE_PLACEHOLDER == parcelableClassName) {
+                baseObjects = `in`.readSerializable() as ArrayList<*>?
             } else {
                 try {
-                    ClassLoader loader = Class.forName(parcelableClassName).getClassLoader();
-                    baseObjects = in.readArrayList(loader);
-                } catch (ClassNotFoundException ex) {
+                    val loader = Class.forName(parcelableClassName).classLoader
+                    baseObjects = `in`.readArrayList(loader)
+                } catch (ex: ClassNotFoundException) {
                     //This should really never happen, class had to be available to get here
-                    throw new RuntimeException(ex);
+                    throw RuntimeException(ex)
                 }
             }
-            tokenizerClassName = in.readString();
+            tokenizerClassName = `in`.readString()
             try {
-                ClassLoader loader = Class.forName(tokenizerClassName).getClassLoader();
-                tokenizer = in.readParcelable(loader);
-            } catch (ClassNotFoundException ex) {
+                val loader = Class.forName(tokenizerClassName).classLoader
+                tokenizer = `in`.readParcelable(loader)
+            } catch (ex: ClassNotFoundException) {
                 //This should really never happen, class had to be available to get here
-                throw new RuntimeException(ex);
+                throw RuntimeException(ex)
             }
         }
 
-        SavedState(Parcelable superState) {
-            super(superState);
-        }
+        constructor(superState: Parcelable?) : super(superState)
 
-        @Override
-        public void writeToParcel(@NonNull Parcel out, int flags) {
-            super.writeToParcel(out, flags);
-            out.writeInt(allowCollapse ? 1 : 0);
-            out.writeInt(performBestGuess ? 1 : 0);
-            if (SERIALIZABLE_PLACEHOLDER.equals(parcelableClassName)) {
-                out.writeString(SERIALIZABLE_PLACEHOLDER);
-                out.writeSerializable((Serializable)baseObjects);
+        override fun writeToParcel(out: Parcel, flags: Int) {
+            super.writeToParcel(out, flags)
+            out.writeInt(if (allowCollapse) 1 else 0)
+            out.writeInt(if (performBestGuess) 1 else 0)
+            if (SERIALIZABLE_PLACEHOLDER == parcelableClassName) {
+                out.writeString(SERIALIZABLE_PLACEHOLDER)
+                out.writeSerializable(baseObjects as Serializable?)
             } else {
-                out.writeString(parcelableClassName);
-                out.writeList(baseObjects);
+                out.writeString(parcelableClassName)
+                out.writeList(baseObjects)
             }
-            out.writeString(tokenizer.getClass().getCanonicalName());
-            out.writeParcelable(tokenizer, 0);
+            out.writeString(tokenizer!!.javaClass.canonicalName)
+            out.writeParcelable(tokenizer, 0)
         }
 
-        @Override
-        public String toString() {
-            String str = "TokenCompleteTextView.SavedState{"
-                    + Integer.toHexString(System.identityHashCode(this))
-                    + " tokens=" + baseObjects;
-            return str + "}";
+        override fun toString(): String {
+            val str = ("TokenCompleteTextView.SavedState{"
+                + Integer.toHexString(System.identityHashCode(this))
+                + " tokens=" + baseObjects)
+            return "$str}"
         }
 
-        @SuppressWarnings("hiding")
-        public static final Parcelable.Creator<SavedState> CREATOR
-                = new Parcelable.Creator<SavedState>() {
-            public SavedState createFromParcel(Parcel in) {
-                return new SavedState(in);
-            }
+        companion object {
+            const val SERIALIZABLE_PLACEHOLDER: String = "Serializable"
 
-            public SavedState[] newArray(int size) {
-                return new SavedState[size];
+            val CREATOR
+                : Parcelable.Creator<SavedState> = object : Parcelable.Creator<SavedState?> {
+                override fun createFromParcel(`in`: Parcel): SavedState? {
+                    return SavedState(`in`)
+                }
+
+                override fun newArray(size: Int): Array<SavedState?> {
+                    return arrayOfNulls(size)
+                }
             }
-        };
+        }
     }
 
     /**
@@ -1217,84 +1148,84 @@ public abstract class TokenCompleteTextView<T> extends AppCompatAutoCompleteText
      * @param beforeLength the number of characters before the current selection end to check
      * @return true if there are no non-deletable pieces of the section
      */
-    @SuppressWarnings("BooleanMethodIsAlwaysInverted")
-    public boolean canDeleteSelection(int beforeLength) {
-        if (getObjects().size() < 1) return true;
+    fun canDeleteSelection(beforeLength: Int): Boolean {
+        if (objects.size < 1) return true
 
         // if beforeLength is 1, we either have no selection or the call is coming from OnKey Event.
         // In these scenarios, getSelectionStart() will return the correct value.
+        val endSelection = selectionEnd
+        val startSelection = if (beforeLength == 1) selectionStart else endSelection - beforeLength
 
-        int endSelection = getSelectionEnd();
-        int startSelection = beforeLength == 1 ? getSelectionStart() : endSelection - beforeLength;
-
-        Editable text = getText();
-        TokenImageSpan[] spans = text.getSpans(0, text.length(), TokenImageSpan.class);
+        val text = text
+        val spans = text.getSpans(0, text.length, TokenImageSpan::class.java)
 
         // Iterate over all tokens and allow the deletion
         // if there are no tokens not removable in the selection
-        for (TokenImageSpan span : spans) {
-            int startTokenSelection = text.getSpanStart(span);
-            int endTokenSelection = text.getSpanEnd(span);
+        for (span in spans) {
+            val startTokenSelection = text.getSpanStart(span)
+            val endTokenSelection = text.getSpanEnd(span)
 
             // moving on, no need to check this token
-            if (isTokenRemovable(span.token)) continue;
+            if (isTokenRemovable(span.token)) continue
 
             if (startSelection == endSelection) {
                 // Delete single
                 if (endTokenSelection + 1 == endSelection) {
-                    return false;
+                    return false
                 }
             } else {
                 // Delete range
                 // Don't delete if a non removable token is in range
                 if (startSelection <= startTokenSelection
-                        && endTokenSelection + 1 <= endSelection) {
-                    return false;
+                    && endTokenSelection + 1 <= endSelection
+                ) {
+                    return false
                 }
             }
         }
-        return true;
+        return true
     }
 
-    private class TokenInputConnection extends InputConnectionWrapper {
-
-        TokenInputConnection(InputConnection target, boolean mutable) {
-            super(target, mutable);
-        }
-
+    private inner class TokenInputConnection(target: InputConnection?, mutable: Boolean) :
+        InputConnectionWrapper(target, mutable) {
         // This will fire if the soft keyboard delete key is pressed.
         // The onKeyPressed method does not always do this.
-        @Override
-        public boolean deleteSurroundingText(int beforeLength, int afterLength) {
+        override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
             // Shouldn't be able to delete any text with tokens that are not removable
-            if (!canDeleteSelection(beforeLength)) return false;
+            if (!canDeleteSelection(beforeLength)) return false
 
-            return super.deleteSurroundingText(beforeLength, afterLength);
+            return super.deleteSurroundingText(beforeLength, afterLength)
         }
 
-        @Override
-        public boolean setComposingText(CharSequence text, int newCursorPosition) {
+        override fun setComposingText(text: CharSequence?, newCursorPosition: Int): Boolean {
             //There's an issue with some keyboards where they will try to insert the first word
             //of the prefix as the composing text
-            CharSequence hint = getHint();
+            var text = text
+            val hint = hint
             if (hint != null && text != null) {
-                String firstWord = hint.toString().trim().split(" ")[0];
-                if (firstWord.length() > 0 && firstWord.equals(text.toString())) {
-                    text = ""; //It was trying to use th hint, so clear that text
+                val firstWord = hint.toString().trim { it <= ' ' }.split(" ".toRegex()).dropLastWhile { it.isEmpty() }
+                    .toTypedArray()[0]
+                if (firstWord.length > 0 && firstWord == text.toString()) {
+                    text = "" //It was trying to use th hint, so clear that text
                 }
             }
 
             //Also, some keyboards don't correctly respect the replacement if the replacement
             //is the same number of characters as the replacement span
             //We need to ignore this value if it's available
-            if (lastCompletionText != null && text != null &&
-                    text.length() == lastCompletionText.length() + 1 &&
-                    text.toString().startsWith(lastCompletionText)) {
-                text = text.subSequence(text.length() - 1, text.length());
-                lastCompletionText = null;
+            if (lastCompletionText != null && text != null && text.length == lastCompletionText!!.length + 1 &&
+                text.toString().startsWith(lastCompletionText!!)
+            ) {
+                text = text.subSequence(text.length - 1, text.length)
+                lastCompletionText = null
             }
 
-            return super.setComposingText(text, newCursorPosition);
+            return super.setComposingText(text, newCursorPosition)
         }
+    }
+
+    companion object {
+        //Logging
+        const val TAG: String = "TokenAutoComplete"
     }
 }
