@@ -214,8 +214,8 @@ abstract class TokenCompleteTextView<T> : AppCompatAutoCompleteTextView,
             if (hiddenContent != null) {
                 text = hiddenContent
             }
-            for (span in text.getSpans(0, text.length, TokenImageSpan::class.java)) {
-                objects.add(span.token as T)
+            for (span in getSpans(0, text.length)) {
+                objects.add(span.token)
             }
             return objects
         }
@@ -312,8 +312,7 @@ abstract class TokenCompleteTextView<T> : AppCompatAutoCompleteTextView,
                 }
 
                 //Replace token spans
-                val tokens =
-                    text.getSpans(i, i, TokenImageSpan::class.java)
+                val tokens = getSpans(i, i)
                 if (tokens.size > 0) {
                     val token = tokens[0]
                     description = description.append(tokenizer!!.wrapTokenValue(token.token.toString()))
@@ -377,8 +376,7 @@ abstract class TokenCompleteTextView<T> : AppCompatAutoCompleteTextView,
             var candidateStringEnd = editable.length
 
             //We want to find the largest string that contains the selection end that is not already tokenized
-            val spans =
-                editable.getSpans(0, editable.length, TokenImageSpan::class.java)
+            val spans = getSpans(0, editable.length)
             for (span in spans) {
                 val spanEnd = editable.getSpanEnd(span)
                 if (candidateStringStart < spanEnd && cursorEndPosition >= spanEnd) {
@@ -480,6 +478,12 @@ abstract class TokenCompleteTextView<T> : AppCompatAutoCompleteTextView,
     }
 
     /**
+     * Type-safe Kotlin wrapper around getSpans for TokenImageSpan.
+     */
+    private fun getSpans(i: Int, j: Int) =
+        text.getSpans(i, j, TokenImageSpan::class.java) as Array<TokenCompleteTextView<T>.TokenImageSpan>
+
+    /**
      * Create a token and hide the keyboard when the user sends the DONE IME action
      * Use IME_NEXT if you want to create a token and go to the next field
      */
@@ -535,7 +539,7 @@ abstract class TokenCompleteTextView<T> : AppCompatAutoCompleteTextView,
             val offset = getOffsetForPosition(event.x, event.y)
 
             if (offset != -1) {
-                val links = text.getSpans(offset, offset, TokenImageSpan::class.java)
+                val links = getSpans(offset, offset)
 
                 if (links.size > 0) {
                     links[0].onClick()
@@ -555,7 +559,7 @@ abstract class TokenCompleteTextView<T> : AppCompatAutoCompleteTextView,
         val text = text
         if (text != null) {
             //Make sure if we are in a span, we select the spot 1 space after the span end
-            val spans = text.getSpans(selStart, selEnd, TokenImageSpan::class.java)
+            val spans = getSpans(selStart, selEnd)
             for (span in spans) {
                 val spanEnd = text.getSpanEnd(span)
                 if (selStart <= spanEnd && text.getSpanStart(span) < selStart) {
@@ -756,7 +760,7 @@ abstract class TokenCompleteTextView<T> : AppCompatAutoCompleteTextView,
 
         // If the object is currently visible, remove it
         for (text in texts) {
-            val spans = text.getSpans(0, text.length, TokenImageSpan::class.java)
+            val spans = getSpans(0, text.length)
             for (span in spans) {
                 if (span.token == `object`) {
                     removeSpan(text, span)
@@ -797,7 +801,7 @@ abstract class TokenCompleteTextView<T> : AppCompatAutoCompleteTextView,
     private fun updateCountSpan() {
         val text = text
 
-        val visibleCount = getText().getSpans<TokenImageSpan>(0, getText().length, TokenImageSpan::class.java).size
+        val visibleCount = getSpans(0, getText().length).size
         countSpan!!.setCount(objects.size - visibleCount)
 
         val spannedCountText = SpannableStringBuilder(countSpan!!.countText)
@@ -874,7 +878,7 @@ abstract class TokenCompleteTextView<T> : AppCompatAutoCompleteTextView,
         }
     }
 
-    inner class TokenImageSpan(d: View?, val token: T) : ViewSpan(d, this@TokenCompleteTextView),
+    open inner class TokenImageSpan(d: View?, val token: T) : ViewSpan(d, this@TokenCompleteTextView),
         NoCopySpan {
         open fun onClick() {
             val text = text ?: return
@@ -925,7 +929,7 @@ abstract class TokenCompleteTextView<T> : AppCompatAutoCompleteTextView,
 
                 val end = start + count
 
-                val spans = text.getSpans<TokenImageSpan>(start, end, TokenImageSpan::class.java)
+                val spans = getSpans(start, end)
 
                 //NOTE: I'm not completely sure this won't cause problems if we get stuck in a text changed loop
                 //but it appears to work fine. Spans will stop getting removed if this breaks.
@@ -1156,8 +1160,7 @@ abstract class TokenCompleteTextView<T> : AppCompatAutoCompleteTextView,
         val endSelection = selectionEnd
         val startSelection = if (beforeLength == 1) selectionStart else endSelection - beforeLength
 
-        val text = text
-        val spans = text.getSpans(0, text.length, TokenImageSpan::class.java)
+        val spans = getSpans(0, text.length)
 
         // Iterate over all tokens and allow the deletion
         // if there are no tokens not removable in the selection
