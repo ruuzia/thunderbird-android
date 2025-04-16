@@ -33,7 +33,6 @@ import android.widget.TextView
 import android.widget.TextView.OnEditorActionListener
 import androidx.annotation.UiThread
 import androidx.appcompat.widget.AppCompatAutoCompleteTextView
-import com.tokenautocomplete.TokenCompleteTextView
 import java.io.Serializable
 import java.lang.reflect.ParameterizedType
 import kotlin.math.max
@@ -46,14 +45,14 @@ import kotlin.math.max
  *
  * @author mgod
  */
-abstract class TokenCompleteTextView<T> : AppCompatAutoCompleteTextView,
+abstract class TokenCompleteTextView<T: Any> : AppCompatAutoCompleteTextView,
     OnEditorActionListener, ViewSpan.Layout {
     private var tokenizer: Tokenizer? = null
     private var selectedObject: T? = null
     private var listener: TokenListener<T>? = null
-    private var spanWatcher: TokenSpanWatcher? = null
-    private var textWatcher: TokenTextWatcher? = null
-    private var countSpan: CountSpan? = null
+    private var spanWatcher = TokenSpanWatcher()
+    private var textWatcher = TokenTextWatcher()
+    private var countSpan = CountSpan()
     private var hiddenContent: SpannableStringBuilder? = null
     private var lastLayout: Layout? = null
     private var initialized = false
@@ -71,7 +70,7 @@ abstract class TokenCompleteTextView<T> : AppCompatAutoCompleteTextView,
     /**
      * Add the TextChangedListeners
      */
-    protected fun addListeners() {
+    private fun addListeners() {
         val text = text
         if (text != null) {
             text.setSpan(spanWatcher, 0, text.length, Spanned.SPAN_INCLUSIVE_INCLUSIVE)
@@ -82,10 +81,10 @@ abstract class TokenCompleteTextView<T> : AppCompatAutoCompleteTextView,
     /**
      * Remove the TextChangedListeners
      */
-    protected fun removeListeners() {
+    private fun removeListeners() {
         val text = text
         if (text != null) {
-            val spanWatchers = text.getSpans<TokenSpanWatcher>(
+            val spanWatchers = text.getSpans(
                 0, text.length,
                 TokenSpanWatcher::class.java
             )
@@ -104,11 +103,8 @@ abstract class TokenCompleteTextView<T> : AppCompatAutoCompleteTextView,
 
         // Initialise variables
         setTokenizer(CharacterTokenizer(mutableListOf(',', ';'), ","))
-        val text = checkNotNull(text)
-        spanWatcher = TokenSpanWatcher()
-        textWatcher = TokenTextWatcher()
+        checkNotNull(text)
         hiddenContent = null
-        countSpan = CountSpan()
 
         // Initialise TextChangedListeners
         addListeners()
@@ -167,11 +163,10 @@ abstract class TokenCompleteTextView<T> : AppCompatAutoCompleteTextView,
     }
 
     override fun performFiltering(text: CharSequence, keyCode: Int) {
-        val filter = filter
         filter?.filter(currentCompletionText(), this)
     }
 
-    fun setTokenizer(t: Tokenizer?) {
+    private fun setTokenizer(t: Tokenizer?) {
         tokenizer = t
     }
 
@@ -180,7 +175,7 @@ abstract class TokenCompleteTextView<T> : AppCompatAutoCompleteTextView,
      *
      * @param l The TokenListener
      */
-    fun setTokenListener(l: TokenListener<T>?) {
+    fun setTokenListener(l: TokenListener<T>) {
         listener = l
     }
 
@@ -198,7 +193,7 @@ abstract class TokenCompleteTextView<T> : AppCompatAutoCompleteTextView,
      * @param token the token to check
      * @return false if the token should not be removed, true if it's ok to remove it.
      */
-    fun isTokenRemovable(@Suppress("unused") token: T): Boolean {
+    open fun isTokenRemovable(@Suppress("unused") token: T): Boolean {
         return true
     }
 
@@ -226,11 +221,7 @@ abstract class TokenCompleteTextView<T> : AppCompatAutoCompleteTextView,
          *
          * @return CharSequence of the entered content
          */
-        get() = if (hiddenContent != null) {
-            hiddenContent
-        } else {
-            text
-        }
+        get() = hiddenContent ?: text
 
     /**
      * Set whether we try to guess an entry from the autocomplete spinner or just use the
@@ -276,7 +267,7 @@ abstract class TokenCompleteTextView<T> : AppCompatAutoCompleteTextView,
      * @param completionText the current text we are completing against
      * @return a best guess for what the user meant to complete or null if you don't want a guess
      */
-    protected abstract fun defaultObject(completionText: String?): T
+    protected abstract fun defaultObject(completionText: String): T?
 
     @get:Suppress("unused")
     val textForAccessibility: CharSequence
@@ -287,7 +278,7 @@ abstract class TokenCompleteTextView<T> : AppCompatAutoCompleteTextView,
          * @return custom string for accessibility
          */
         get() {
-            if (objects.size == 0) {
+            if (objects.isEmpty()) {
                 return text
             }
 
@@ -313,7 +304,7 @@ abstract class TokenCompleteTextView<T> : AppCompatAutoCompleteTextView,
 
                 //Replace token spans
                 val tokens = getSpans(i, i)
-                if (tokens.size > 0) {
+                if (tokens.isNotEmpty()) {
                     val token = tokens[0]
                     description = description.append(tokenizer!!.wrapTokenValue(token.token.toString()))
                     i = text.getSpanEnd(token)
@@ -347,7 +338,7 @@ abstract class TokenCompleteTextView<T> : AppCompatAutoCompleteTextView,
     @Suppress("unused")
     fun clearCompletionText() {
         //Respect currentCompletionText in case hint is visible or if other checks are added.
-        if (currentCompletionText().length == 0) {
+        if (currentCompletionText().isEmpty()) {
             return
         }
 
@@ -379,7 +370,7 @@ abstract class TokenCompleteTextView<T> : AppCompatAutoCompleteTextView,
             val spans = getSpans(0, editable.length)
             for (span in spans) {
                 val spanEnd = editable.getSpanEnd(span)
-                if (candidateStringStart < spanEnd && cursorEndPosition >= spanEnd) {
+                if (spanEnd in (candidateStringStart + 1)..cursorEndPosition) {
                     candidateStringStart = spanEnd
                 }
                 val spanStart = editable.getSpanStart(span)
@@ -398,7 +389,7 @@ abstract class TokenCompleteTextView<T> : AppCompatAutoCompleteTextView,
      * @param token the token to convert
      * @return the string representation of the token. Defaults to [Object.toString]
      */
-    protected fun tokenToString(token: T): CharSequence {
+    private fun tokenToString(token: T): CharSequence {
         return token.toString()
     }
 
@@ -411,7 +402,7 @@ abstract class TokenCompleteTextView<T> : AppCompatAutoCompleteTextView,
         return result
     }
 
-    protected fun maxTextWidth(): Float {
+    private fun maxTextWidth(): Float {
         return (width - paddingLeft - paddingRight).toFloat()
     }
 
@@ -427,7 +418,7 @@ abstract class TokenCompleteTextView<T> : AppCompatAutoCompleteTextView,
 
         val textLength = text.length
         val dummySpans = text.getSpans(0, textLength, DummySpan::class.java)
-        if (dummySpans.size > 0) {
+        if (dummySpans.isNotEmpty()) {
             text.removeSpan(DummySpan.INSTANCE)
         } else {
             text.setSpan(DummySpan.INSTANCE, 0, textLength, Spannable.SPAN_INCLUSIVE_INCLUSIVE)
@@ -453,13 +444,13 @@ abstract class TokenCompleteTextView<T> : AppCompatAutoCompleteTextView,
 
     override fun performCompletion() {
         if ((adapter == null || listSelection == ListView.INVALID_POSITION) && enoughToFilter()) {
-            val bestGuess: Any
-            if (adapter != null && adapter.count > 0 && performBestGuess) {
-                bestGuess = adapter.getItem(0)
-            } else {
-                bestGuess = defaultObject(currentCompletionText())
-            }
-            replaceText(convertSelectionToString(bestGuess))
+            val bestGuess =
+                if (adapter != null && adapter.count > 0 && performBestGuess) {
+                    adapter.getItem(0)
+                } else {
+                    defaultObject(currentCompletionText())
+                }
+            if (bestGuess != null) replaceText(convertSelectionToString(bestGuess))
         } else {
             super.performCompletion()
         }
@@ -495,7 +486,7 @@ abstract class TokenCompleteTextView<T> : AppCompatAutoCompleteTextView,
         val imm = context.getSystemService(
             Context.INPUT_METHOD_SERVICE
         ) as InputMethodManager
-        imm?.hideSoftInputFromWindow(windowToken, 0)
+        imm.hideSoftInputFromWindow(windowToken, 0)
     }
 
     override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
@@ -541,7 +532,7 @@ abstract class TokenCompleteTextView<T> : AppCompatAutoCompleteTextView,
             if (offset != -1) {
                 val links = getSpans(offset, offset)
 
-                if (links.size > 0) {
+                if (links.isNotEmpty()) {
                     links[0].onClick()
                     handled = true
                 }
@@ -553,8 +544,7 @@ abstract class TokenCompleteTextView<T> : AppCompatAutoCompleteTextView,
 
     override fun onSelectionChanged(selStart: Int, selEnd: Int) {
         //Never let users select text
-        var selEnd = selEnd
-        selEnd = selStart
+        val selEnd = selStart
 
         val text = text
         if (text != null) {
@@ -626,11 +616,11 @@ abstract class TokenCompleteTextView<T> : AppCompatAutoCompleteTextView,
 
                 post { setSelection(text.length) }
 
-                val watchers = text.getSpans<TokenSpanWatcher>(
+                val watchers = text.getSpans(
                     0, text.length,
                     TokenSpanWatcher::class.java
                 )
-                if (watchers.size == 0) {
+                if (watchers.isEmpty()) {
                     //Span watchers can get removed in setText
                     text.setSpan(spanWatcher, 0, text.length, Spanned.SPAN_INCLUSIVE_INCLUSIVE)
                 }
@@ -673,7 +663,7 @@ abstract class TokenCompleteTextView<T> : AppCompatAutoCompleteTextView,
         val original = TextUtils.substring(editable, candidateRange.start, candidateRange.end)
 
         //Keep track of  replacements for a bug workaround
-        if (original.length > 0) {
+        if (original.isNotEmpty()) {
             lastCompletionText = original
         }
 
@@ -751,12 +741,8 @@ abstract class TokenCompleteTextView<T> : AppCompatAutoCompleteTextView,
         //existing code that handles deleting spans when the text changes
         val texts = ArrayList<Editable>()
         //If there is hidden content, it's important that we update it first
-        if (hiddenContent != null) {
-            texts.add(hiddenContent!!)
-        }
-        if (text != null) {
-            texts.add(text)
-        }
+        hiddenContent?.let { texts.add(it) }
+        text?.let { texts.add(it) }
 
         // If the object is currently visible, remove it
         for (text in texts) {
@@ -786,13 +772,11 @@ abstract class TokenCompleteTextView<T> : AppCompatAutoCompleteTextView,
      * Remove all objects from the token list. Objects will be removed on the main thread.
      */
     fun clearAsync() {
-        post(object : Runnable {
-            override fun run() {
-                for (`object` in this.objects) {
-                    removeObjectSync(`object`)
-                }
+        post {
+            for (`object` in objects) {
+                removeObjectSync(`object`)
             }
-        })
+        }
     }
 
     /**
@@ -802,9 +786,9 @@ abstract class TokenCompleteTextView<T> : AppCompatAutoCompleteTextView,
         val text = text
 
         val visibleCount = getSpans(0, getText().length).size
-        countSpan!!.setCount(objects.size - visibleCount)
+        countSpan.setCount(objects.size - visibleCount)
 
-        val spannedCountText = SpannableStringBuilder(countSpan!!.countText)
+        val spannedCountText = SpannableStringBuilder(countSpan.countText)
         spannedCountText.setSpan(countSpan, 0, spannedCountText.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
 
         internalEditInProgress = true
@@ -896,19 +880,19 @@ abstract class TokenCompleteTextView<T> : AppCompatAutoCompleteTextView,
         fun onTokenIgnored(token: T)
     }
 
-    class TokenSpanWatcher : SpanWatcher {
+    inner class TokenSpanWatcher : SpanWatcher {
         override fun onSpanAdded(text: Spannable, what: Any, start: Int, end: Int) {
-            if (what is TokenImageSpan && !savingState) {
+            if (what is TokenCompleteTextView<*>.TokenImageSpan && !savingState) {
                 // If we're not focused: collapse the view if necessary
                 if (!isFocused && allowCollapse) performCollapse(false)
 
-                if (listener != null) listener!!.onTokenAdded(what.token)
+                if (listener != null) listener!!.onTokenAdded(what.token as T)
             }
         }
 
         override fun onSpanRemoved(text: Spannable, what: Any, start: Int, end: Int) {
-            if (what is TokenImageSpan && !savingState) {
-                if (listener != null) listener!!.onTokenRemoved(what.token)
+            if (what is TokenCompleteTextView<*>.TokenImageSpan && !savingState) {
+                if (listener != null) listener!!.onTokenRemoved(what.token as T)
             }
         }
 
@@ -958,7 +942,7 @@ abstract class TokenCompleteTextView<T> : AppCompatAutoCompleteTextView,
         }
     }
 
-    protected val serializableObjects: List<Serializable>
+    private val serializableObjects: List<Serializable>
         get() {
             val serializables: MutableList<Serializable> =
                 ArrayList()
@@ -980,7 +964,7 @@ abstract class TokenCompleteTextView<T> : AppCompatAutoCompleteTextView,
             return serializables
         }
 
-    protected fun convertSerializableObjectsToTypedObjects(s: List<*>?): List<T>? {
+    private fun convertSerializableObjectsToTypedObjects(s: List<*>?): List<T>? {
         return s as List<T>?
     }
 
@@ -1045,17 +1029,16 @@ abstract class TokenCompleteTextView<T> : AppCompatAutoCompleteTextView,
             return
         }
 
-        val ss = state
-        super.onRestoreInstanceState(ss.superState)
+        super.onRestoreInstanceState(state.superState)
 
-        allowCollapse = ss.allowCollapse
-        performBestGuess = ss.performBestGuess
-        tokenizer = ss.tokenizer
+        allowCollapse = state.allowCollapse
+        performBestGuess = state.performBestGuess
+        tokenizer = state.tokenizer
         addListeners()
-        val objects = if (SavedState.SERIALIZABLE_PLACEHOLDER == ss.parcelableClassName) {
-            convertSerializableObjectsToTypedObjects(ss.baseObjects)
+        val objects = if (SavedState.SERIALIZABLE_PLACEHOLDER == state.parcelableClassName) {
+            convertSerializableObjectsToTypedObjects(state.baseObjects)
         } else {
-            ss.baseObjects as List<T>?
+            state.baseObjects as List<T>?
         }
 
         //TODO: change this to keep object spans in the correct locations based on ranges.
@@ -1077,17 +1060,17 @@ abstract class TokenCompleteTextView<T> : AppCompatAutoCompleteTextView,
     private class SavedState : BaseSavedState {
         var allowCollapse: Boolean = false
         var performBestGuess: Boolean = false
-        var parcelableClassName: String? = null
+        var parcelableClassName: String = ""
         var baseObjects: List<*>? = null
-        var tokenizerClassName: String? = null
+        var tokenizerClassName: String = ""
         var tokenizer: Tokenizer? = null
 
         constructor(`in`: Parcel) : super(`in`) {
             allowCollapse = `in`.readInt() != 0
             performBestGuess = `in`.readInt() != 0
-            parcelableClassName = `in`.readString()
+            parcelableClassName = `in`.readString() ?: ""
             if (SERIALIZABLE_PLACEHOLDER == parcelableClassName) {
-                baseObjects = `in`.readSerializable() as ArrayList<*>?
+                baseObjects = `in`.readSerializable() as ArrayList<*>
             } else {
                 try {
                     val loader = Class.forName(parcelableClassName).classLoader
@@ -1097,7 +1080,7 @@ abstract class TokenCompleteTextView<T> : AppCompatAutoCompleteTextView,
                     throw RuntimeException(ex)
                 }
             }
-            tokenizerClassName = `in`.readString()
+            tokenizerClassName = `in`.readString() ?: ""
             try {
                 val loader = Class.forName(tokenizerClassName).classLoader
                 tokenizer = `in`.readParcelable(loader)
@@ -1134,9 +1117,10 @@ abstract class TokenCompleteTextView<T> : AppCompatAutoCompleteTextView,
         companion object {
             const val SERIALIZABLE_PLACEHOLDER: String = "Serializable"
 
+            @JvmField
             val CREATOR
-                : Parcelable.Creator<SavedState> = object : Parcelable.Creator<SavedState?> {
-                override fun createFromParcel(`in`: Parcel): SavedState? {
+                : Parcelable.Creator<SavedState> = object : Parcelable.Creator<SavedState> {
+                override fun createFromParcel(`in`: Parcel): SavedState {
                     return SavedState(`in`)
                 }
 
@@ -1153,7 +1137,7 @@ abstract class TokenCompleteTextView<T> : AppCompatAutoCompleteTextView,
      * @return true if there are no non-deletable pieces of the section
      */
     fun canDeleteSelection(beforeLength: Int): Boolean {
-        if (objects.size < 1) return true
+        if (objects.isEmpty()) return true
 
         // if beforeLength is 1, we either have no selection or the call is coming from OnKey Event.
         // In these scenarios, getSelectionStart() will return the correct value.
@@ -1200,15 +1184,15 @@ abstract class TokenCompleteTextView<T> : AppCompatAutoCompleteTextView,
             return super.deleteSurroundingText(beforeLength, afterLength)
         }
 
-        override fun setComposingText(text: CharSequence?, newCursorPosition: Int): Boolean {
+        override fun setComposingText(newText: CharSequence?, newCursorPosition: Int): Boolean {
             //There's an issue with some keyboards where they will try to insert the first word
             //of the prefix as the composing text
-            var text = text
+            var text = newText
             val hint = hint
             if (hint != null && text != null) {
                 val firstWord = hint.toString().trim { it <= ' ' }.split(" ".toRegex()).dropLastWhile { it.isEmpty() }
                     .toTypedArray()[0]
-                if (firstWord.length > 0 && firstWord == text.toString()) {
+                if (firstWord.isNotEmpty() && firstWord == text.toString()) {
                     text = "" //It was trying to use th hint, so clear that text
                 }
             }

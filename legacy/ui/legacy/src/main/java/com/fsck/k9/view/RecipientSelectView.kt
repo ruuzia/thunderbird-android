@@ -55,7 +55,7 @@ class RecipientSelectView : TokenCompleteTextView<RecipientSelectView.Recipient>
     private var alternatesPopup: ListPopupWindow? = null
     private var alternatesAdapter: AlternateRecipientAdapter? = null
     private var alternatesPopupRecipient: Recipient? = null
-    private var listener: TokenListener<Recipient?>? = null
+    private var listener: TokenListener<Recipient>? = null
     private var tokenTextSize = FontSizes.FONT_DEFAULT
 
     constructor(context: Context) : super(context)
@@ -490,7 +490,7 @@ class RecipientSelectView : TokenCompleteTextView<RecipientSelectView.Recipient>
      * We use a specialized version of TokenCompleteTextView.TokenListener as well,
      * adding a callback for onTokenChanged.
      */
-    fun setTokenListener(listener: TokenListener<Recipient?>?) {
+    fun setTokenListener(listener: TokenListener<Recipient>) {
         super.setTokenListener(listener)
         this.listener = listener
     }
@@ -506,7 +506,7 @@ class RecipientSelectView : TokenCompleteTextView<RecipientSelectView.Recipient>
         fun onTokenChanged(token: T)
     }
 
-    private inner class RecipientTokenSpan(val view: View, recipient: Recipient?) :
+    private inner class RecipientTokenSpan(val view: View, recipient: Recipient) :
         TokenImageSpan(view, recipient) {
 
         override fun onClick() {
